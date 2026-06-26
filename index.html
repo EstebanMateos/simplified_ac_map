@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>GPS to Lua Trajectory</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #1f3444;
+            color: #eeeeee;
+        }
+
+        #app {
+            display: grid;
+            grid-template-columns: 1fr 440px;
+            height: 100%;
+        }
+
+        #map {
+            height: 100%;
+        }
+
+        #panel {
+            padding: 14px;
+            overflow: auto;
+            background: #243f52;
+            box-sizing: border-box;
+        }
+
+        h2,
+        h3 {
+            margin: 8px 0 12px;
+        }
+
+        label {
+            display: block;
+            margin-top: 10px;
+            font-size: 13px;
+            color: #cccccc;
+        }
+
+        input,
+        button,
+        textarea {
+            width: 100%;
+            box-sizing: border-box;
+            border: none;
+            border-radius: 6px;
+            padding: 9px;
+            font-size: 14px;
+        }
+
+        input {
+            background: #eeeeee;
+            color: #111111;
+        }
+
+        button {
+            margin-top: 10px;
+            cursor: pointer;
+            background: #111111;
+            color: white;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #333333;
+        }
+
+        textarea {
+            min-height: 260px;
+            resize: vertical;
+            font-family: monospace;
+            background: #111111;
+            color: #eeeeee;
+        }
+
+        .row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .waypoint {
+            padding: 8px;
+            margin: 8px 0;
+            border-radius: 6px;
+            background: #1a2c39;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .waypoint.selected {
+            outline: 2px solid #ffffff;
+        }
+
+        .small {
+            font-size: 12px;
+            color: #bbbbbb;
+            margin-top: 8px;
+            line-height: 1.4;
+        }
+
+        @media (max-width: 900px) {
+            #app {
+                grid-template-columns: 1fr;
+                grid-template-rows: 55vh auto;
+            }
+        }
+    </style>
+</head>
+
+<body>
+<div id="app">
+    <div id="map"></div>
+
+    <div id="panel">
+        <h2>GPS to Lua</h2>
+
+        <h3>Départ écrit</h3>
+
+        <label>Lieu approximatif</label>
+        <input id="searchPlace" type="text" value="Aéroport Aix Les Milles">
+        <button onclick="searchStartPlace()">Chercher le lieu</button>
+
+        <div class="small" id="referenceInfo">Aucun départ écrit défini</div>
+        <div class="small" id="realStartInfo">Clique sur la carte pour définir le vrai départ</div>
+
+        <h3>Départ réel</h3>
+
+        <div class="row">
+            <div>
+                <label>Latitude réelle</label>
+                <input id="startLat" type="number" step="0.000001" value="43.529742">
+            </div>
+            <div>
+                <label>Longitude réelle</label>
+                <input id="startLon" type="number" step="0.000001" value="5.447427">
+            </div>
+        </div>
+
+        <label>Altitude initiale ft</label>
+        <input id="startAlt" type="number" step="1">
+
+        <button onclick="setStartPointFromInputs()">Placer le départ réel saisi</button>
+        <button onclick="clearTrajectory()">Effacer la trajectoire</button>
+
+        <h3>Point sélectionné</h3>
+
+        <div class="small" id="selectedInfo">Aucun point sélectionné</div>
+
+        <div class="row">
+            <div>
+                <label>Altitude ft</label>
+                <input id="wpAlt" type="number" step="1" oninput="updateSelectedWaypoint()">
+            </div>
+        </div>
+
+        <button onclick="deleteSelectedWaypoint()">Supprimer le point sélectionné</button>
+
+        <h3>Lissage</h3>
+
+        <div class="row">
+            <div>
+                <label>Arrondi virage NM</label>
+                <input id="turnRadiusNm" type="number" step="0.01" min="0" value="0.15" oninput="render(false)">
+            </div>
+            <div>
+                <label>Vitesse trajectoire m/s</label>
+                <input id="trajectorySpeedMs" type="number" step="0.5" min="0.1" value="15" oninput="render(false)">
+            </div>
+        </div>
+
+        <label>Variation cap max deg</label>
+        <input id="maxHeadingStepDeg" type="number" step="1" min="1" value="5" oninput="render(false)">
+
+        <label>Anticipation secondes</label>
+        <input id="commandLeadSec" type="number" step="0.5" min="0" value="0" oninput="render(false)">
+
+        <div class="small">Rayon 0 : trajectoire non lissée. Le Lua garde les commandes utiles ; time = distance cumulée / speed.</div>
+
+        <h3>Base simulateur</h3>
+        <div class="small" id="baseInfo">Aucune trajectoire définie</div>
+
+        <h3>Lua</h3>
+        <textarea id="luaOutput" readonly></textarea>
+        <button onclick="copyLua()">Copier le script Lua</button>
+    </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    const map = L.map("map").setView([43.529742, 5.447427], 15);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap"
+    }).addTo(map);
+
+    let reference_start = null;
+    let reference_marker = null;
+	    let waypoints = [];
+	    let markers = [];
+	    let command_markers = [];
+	    let polyline = null;
+	    let smooth_polyline = null;
+	    let selected_index = -1;
+	    const earth_radius_m = 6371000.0;
+
+    function toRad(degrees) {
+        return degrees * Math.PI / 180.0;
+    }
+
+    function toDeg(radians) {
+        return radians * 180.0 / Math.PI;
+    }
+
+	    function distanceNm(a, b) {
+	        const lat1 = toRad(a.lat);
+	        const lat2 = toRad(b.lat);
+	        const d_lat = toRad(b.lat - a.lat);
+        const d_lon = toRad(b.lon - a.lon);
+
+        const sin_lat = Math.sin(d_lat / 2.0);
+        const sin_lon = Math.sin(d_lon / 2.0);
+
+        const h = sin_lat * sin_lat + Math.cos(lat1) * Math.cos(lat2) * sin_lon * sin_lon;
+        const c = 2.0 * Math.atan2(Math.sqrt(h), Math.sqrt(1.0 - h));
+
+        return earth_radius_m * c / 1852.0;
+    }
+
+    function bearingDeg(a, b) {
+        const lat1 = toRad(a.lat);
+        const lat2 = toRad(b.lat);
+        const d_lon = toRad(b.lon - a.lon);
+
+        const y = Math.sin(d_lon) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(d_lon);
+
+	        return (toDeg(Math.atan2(y, x)) + 360.0) % 360.0;
+	    }
+
+	    function clamp(value, min, max) {
+	        return Math.min(max, Math.max(min, value));
+	    }
+
+	    function lerp(a, b, t) {
+	        return a + (b - a) * t;
+	    }
+
+	    function optionalNumberFromInput(id) {
+	        const raw_value = document.getElementById(id).value.trim();
+
+	        if (raw_value === "") {
+	            return null;
+	        }
+
+	        const value = Number(raw_value);
+	        return Number.isFinite(value) ? value : null;
+	    }
+
+	    function lerpOptional(a, b, t) {
+	        const a_is_number = Number.isFinite(a);
+	        const b_is_number = Number.isFinite(b);
+
+	        if (a_is_number && b_is_number) {
+	            return lerp(a, b, t);
+	        }
+
+	        if (a_is_number) {
+	            return a;
+	        }
+
+	        if (b_is_number) {
+	            return b;
+	        }
+
+	        return null;
+	    }
+
+	    function getTurnRadiusM() {
+	        const value = Number(document.getElementById("turnRadiusNm").value);
+	        return Math.max(0.0, Number.isFinite(value) ? value : 0.0) * 1852.0;
+	    }
+
+	    function getTrajectorySpeedMs() {
+	        const value = Number(document.getElementById("trajectorySpeedMs").value);
+	        return Math.max(0.1, Number.isFinite(value) ? value : 15.0);
+	    }
+
+	    function getCommandLeadSec() {
+	        const value = Number(document.getElementById("commandLeadSec").value);
+	        return Math.max(0.0, Number.isFinite(value) ? value : 0.0);
+	    }
+
+	    function getMaxHeadingStepDeg() {
+	        const value = Number(document.getElementById("maxHeadingStepDeg").value);
+	        return Math.max(1.0, Number.isFinite(value) ? value : 5.0);
+	    }
+
+	    function headingDeltaDeg(a, b) {
+	        return Math.abs(((b - a + 540.0) % 360.0) - 180.0);
+	    }
+
+	    function makeProjectionOrigin() {
+	        if (!waypoints.length) {
+	            return { lat: 0.0, lon: 0.0, cosLat: 1.0 };
+	        }
+
+	        const origin = {
+	            lat: waypoints[0].lat,
+	            lon: waypoints[0].lon
+	        };
+
+	        origin.cosLat = Math.cos(toRad(origin.lat));
+	        return origin;
+	    }
+
+	    function geoToLocal(point, origin) {
+	        return {
+	            x: toRad(point.lon - origin.lon) * earth_radius_m * origin.cosLat,
+	            y: toRad(point.lat - origin.lat) * earth_radius_m
+	        };
+	    }
+
+	    function localToGeo(point, origin) {
+	        return {
+	            lat: origin.lat + toDeg(point.y / earth_radius_m),
+	            lon: origin.lon + toDeg(point.x / (earth_radius_m * origin.cosLat))
+	        };
+	    }
+
+	    function vectorLength(vector) {
+	        return Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+	    }
+
+	    function normalize(vector) {
+	        const length = vectorLength(vector);
+
+	        if (length <= 0.000001) {
+	            return { x: 0.0, y: 0.0 };
+	        }
+
+	        return {
+	            x: vector.x / length,
+	            y: vector.y / length
+	        };
+	    }
+
+	    function interpolateWaypoint(a, b, t) {
+	        return {
+	            lat: lerp(a.lat, b.lat, t),
+	            lon: lerp(a.lon, b.lon, t),
+	            altitudeFt: lerpOptional(a.altitudeFt, b.altitudeFt, t),
+	            initialHeadingDeg: null
+	        };
+	    }
+
+	    function interpolateNode(a, b, t) {
+	        return {
+	            lat: lerp(a.lat, b.lat, t),
+	            lon: lerp(a.lon, b.lon, t),
+	            altitudeFt: lerpOptional(a.altitudeFt, b.altitudeFt, t),
+	            initialHeadingDeg: null
+	        };
+	    }
+
+	    function pushNode(nodes, node) {
+	        const previous = nodes[nodes.length - 1];
+
+	        if (previous && distanceNm(previous, node) < 0.001) {
+	            nodes[nodes.length - 1] = node;
+	            return;
+	        }
+
+	        nodes.push(node);
+	    }
+
+	    function buildSmoothedNodes() {
+	        if (waypoints.length <= 2 || getTurnRadiusM() <= 0.0) {
+	            return waypoints.map(waypoint => ({
+	                lat: waypoint.lat,
+	                lon: waypoint.lon,
+	                altitudeFt: waypoint.altitudeFt,
+	                initialHeadingDeg: waypoint.initialHeadingDeg
+	            }));
+	        }
+
+	        const origin = makeProjectionOrigin();
+	        const local_points = waypoints.map(waypoint => geoToLocal(waypoint, origin));
+	        const nodes = [{
+	            lat: waypoints[0].lat,
+	            lon: waypoints[0].lon,
+	            altitudeFt: waypoints[0].altitudeFt,
+	            initialHeadingDeg: waypoints[0].initialHeadingDeg
+	        }];
+
+	        for (let index = 1; index < waypoints.length - 1; ++index) {
+	            const previous = local_points[index - 1];
+	            const current = local_points[index];
+	            const next = local_points[index + 1];
+	            const incoming = {
+	                x: previous.x - current.x,
+	                y: previous.y - current.y
+	            };
+	            const outgoing = {
+	                x: next.x - current.x,
+	                y: next.y - current.y
+	            };
+	            const incoming_length = vectorLength(incoming);
+	            const outgoing_length = vectorLength(outgoing);
+	            const offset = Math.min(getTurnRadiusM(), incoming_length * 0.45, outgoing_length * 0.45);
+
+	            if (offset < 1.0) {
+	                pushNode(nodes, waypoints[index]);
+	                continue;
+	            }
+
+	            const incoming_direction = normalize(incoming);
+	            const outgoing_direction = normalize(outgoing);
+	            const turn_start_local = {
+	                x: current.x + incoming_direction.x * offset,
+	                y: current.y + incoming_direction.y * offset
+	            };
+	            const turn_end_local = {
+	                x: current.x + outgoing_direction.x * offset,
+	                y: current.y + outgoing_direction.y * offset
+	            };
+	            const start_geo = localToGeo(turn_start_local, origin);
+	            const end_geo = localToGeo(turn_end_local, origin);
+	            const start_fraction = clamp((incoming_length - offset) / incoming_length, 0.0, 1.0);
+	            const end_fraction = clamp(offset / outgoing_length, 0.0, 1.0);
+	            const turn_start = {
+	                ...interpolateWaypoint(waypoints[index - 1], waypoints[index], start_fraction),
+	                lat: start_geo.lat,
+	                lon: start_geo.lon
+	            };
+	            const turn_end = {
+	                ...interpolateWaypoint(waypoints[index], waypoints[index + 1], end_fraction),
+	                lat: end_geo.lat,
+	                lon: end_geo.lon
+	            };
+	            const samples = clamp(Math.ceil(offset / 20.0), 6, 48);
+
+	            pushNode(nodes, turn_start);
+
+	            for (let sample = 1; sample <= samples; ++sample) {
+	                const t = sample / samples;
+	                const one_minus_t = 1.0 - t;
+	                const curve_local = {
+	                    x: one_minus_t * one_minus_t * turn_start_local.x
+	                        + 2.0 * one_minus_t * t * current.x
+	                        + t * t * turn_end_local.x,
+	                    y: one_minus_t * one_minus_t * turn_start_local.y
+	                        + 2.0 * one_minus_t * t * current.y
+	                        + t * t * turn_end_local.y
+	                };
+	                const curve_geo = localToGeo(curve_local, origin);
+	                const profile = t < 0.5
+	                    ? interpolateWaypoint(turn_start, waypoints[index], t * 2.0)
+	                    : interpolateWaypoint(waypoints[index], turn_end, (t - 0.5) * 2.0);
+
+	                pushNode(nodes, {
+	                    ...profile,
+	                    lat: curve_geo.lat,
+	                    lon: curve_geo.lon
+	                });
+	            }
+	        }
+
+	        pushNode(nodes, {
+	            lat: waypoints[waypoints.length - 1].lat,
+	            lon: waypoints[waypoints.length - 1].lon,
+	            altitudeFt: waypoints[waypoints.length - 1].altitudeFt,
+	            initialHeadingDeg: null
+	        });
+
+	        return nodes;
+	    }
+
+	    function buildTimedCommands(nodes) {
+	        if (nodes.length <= 1) {
+	            return nodes.map(node => ({
+	                ...node,
+	                headingDeg: 0,
+	                time: 0.0
+	            }));
+	        }
+
+	        const speed_ms = getTrajectorySpeedMs();
+	        const lead_sec = getCommandLeadSec();
+	        const max_heading_step = getMaxHeadingStepDeg();
+	        let cumulative_distance_m = 0.0;
+	        const timed_nodes = nodes.map((node, index) => {
+	            if (index > 0) {
+	                cumulative_distance_m += distanceNm(nodes[index - 1], node) * 1852.0;
+	            }
+
+	            const time = index === 0
+	                ? 0.0
+	                : Math.max(0.0, cumulative_distance_m / speed_ms - lead_sec);
+	            const heading_source = index < nodes.length - 1 ? node : nodes[index - 1];
+	            const heading_target = index < nodes.length - 1 ? nodes[index + 1] : node;
+	            const heading = Math.round(bearingDeg(heading_source, heading_target));
+
+	            return {
+	                ...node,
+	                headingDeg: heading,
+	                time: time
+	            };
+	        });
+
+	        const commands = [timed_nodes[0]];
+	        let last_heading = timed_nodes[0].headingDeg;
+	        let was_turning = false;
+
+	        for (let index = 1; index < timed_nodes.length - 1; ++index) {
+	            const node = timed_nodes[index];
+	            const previous = timed_nodes[index - 1];
+	            const next = timed_nodes[index + 1];
+	            const entering_heading = bearingDeg(previous, node);
+	            const leaving_heading = bearingDeg(node, next);
+	            const local_turn = headingDeltaDeg(entering_heading, leaving_heading);
+	            const is_turning = local_turn >= 0.5;
+	            const since_last_command = headingDeltaDeg(last_heading, node.headingDeg);
+	            const entering_turn = is_turning && !was_turning;
+	            const leaving_turn = !is_turning && was_turning;
+
+	            if (entering_turn || leaving_turn || since_last_command >= max_heading_step) {
+	                commands.push(node);
+	                last_heading = node.headingDeg;
+	            }
+
+	            was_turning = is_turning;
+	        }
+
+	        commands.push(timed_nodes[timed_nodes.length - 1]);
+	        return commands;
+	    }
+
+    async function searchStartPlace() {
+        const place = document.getElementById("searchPlace").value.trim();
+
+        if (!place) {
+            return;
+        }
+
+        const url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(place);
+        const response = await fetch(url);
+        const results = await response.json();
+
+        if (!results.length) {
+            alert("Lieu introuvable");
+            return;
+        }
+
+        reference_start = {
+            lat: Number(results[0].lat),
+            lon: Number(results[0].lon),
+            name: results[0].display_name
+        };
+
+        if (reference_marker) {
+            map.removeLayer(reference_marker);
+        }
+
+        reference_marker = L.circleMarker([reference_start.lat, reference_start.lon], {
+            radius: 8,
+            weight: 3
+        }).addTo(map);
+
+        reference_marker.bindTooltip("Départ écrit", {
+            permanent: true,
+            direction: "top"
+        });
+
+        document.getElementById("referenceInfo").textContent =
+            "Départ écrit : lat " + reference_start.lat.toFixed(6)
+            + ", lon " + reference_start.lon.toFixed(6);
+
+        document.getElementById("realStartInfo").textContent =
+            "Clique sur la carte pour définir le vrai départ.";
+
+        map.setView([reference_start.lat, reference_start.lon], 16);
+    }
+
+    function setStartPointFromInputs() {
+        const lat = Number(document.getElementById("startLat").value);
+        const lon = Number(document.getElementById("startLon").value);
+        setRealStart(lat, lon);
+    }
+
+	    function setRealStart(lat, lon) {
+	        const altitude = optionalNumberFromInput("startAlt");
+
+	        let initial_heading = null;
+
+        if (reference_start) {
+            initial_heading = Math.round(bearingDeg(reference_start, {
+                lat: lat,
+                lon: lon
+            }));
+        }
+
+	        waypoints = [{
+	            lat: lat,
+	            lon: lon,
+	            altitudeFt: altitude,
+	            initialHeadingDeg: initial_heading
+	        }];
+
+        selected_index = 0;
+
+        document.getElementById("startLat").value = lat.toFixed(6);
+        document.getElementById("startLon").value = lon.toFixed(6);
+
+        let text = "Départ réel : lat " + lat.toFixed(6) + ", lon " + lon.toFixed(6);
+
+        if (initial_heading !== null) {
+            text += ", heading " + initial_heading + " deg";
+        }
+
+        document.getElementById("realStartInfo").textContent = text;
+
+        map.setView([lat, lon], map.getZoom());
+        render();
+    }
+
+    function addWaypoint(lat, lon) {
+        const previous = waypoints[waypoints.length - 1];
+
+	        waypoints.push({
+	            lat: lat,
+	            lon: lon,
+	            altitudeFt: previous ? previous.altitudeFt : null,
+	            initialHeadingDeg: null
+	        });
+
+        selected_index = waypoints.length - 1;
+        render();
+    }
+
+    function selectWaypoint(index) {
+        selected_index = index;
+        render();
+    }
+
+    function updateSelectedWaypoint() {
+        if (selected_index < 0 || selected_index >= waypoints.length) {
+            return;
+        }
+
+	        waypoints[selected_index].altitudeFt = optionalNumberFromInput("wpAlt");
+
+        render(false);
+    }
+
+    function deleteSelectedWaypoint() {
+        if (selected_index < 0 || selected_index >= waypoints.length) {
+            return;
+        }
+
+        waypoints.splice(selected_index, 1);
+        selected_index = Math.min(selected_index, waypoints.length - 1);
+        render();
+    }
+
+    function clearTrajectory() {
+        waypoints = [];
+        selected_index = -1;
+
+        document.getElementById("realStartInfo").textContent =
+            "Clique sur la carte pour définir le vrai départ";
+
+        render();
+    }
+
+	    function render(update_inputs = true) {
+	        markers.forEach(marker => map.removeLayer(marker));
+	        markers = [];
+
+	        command_markers.forEach(marker => map.removeLayer(marker));
+	        command_markers = [];
+
+	        if (polyline) {
+	            map.removeLayer(polyline);
+	            polyline = null;
+	        }
+
+	        if (smooth_polyline) {
+	            map.removeLayer(smooth_polyline);
+	            smooth_polyline = null;
+	        }
+
+        waypoints.forEach((waypoint, index) => {
+            const marker = L.marker([waypoint.lat, waypoint.lon], {
+                draggable: true
+            }).addTo(map);
+
+            marker.bindTooltip(String(index), {
+                permanent: true,
+                direction: "top"
+            });
+
+            marker.on("click", () => selectWaypoint(index));
+
+            marker.on("dragend", event => {
+                const position = event.target.getLatLng();
+
+                waypoints[index].lat = position.lat;
+                waypoints[index].lon = position.lng;
+
+                if (index === 0 && reference_start) {
+                    waypoints[index].initialHeadingDeg = Math.round(bearingDeg(reference_start, {
+                        lat: position.lat,
+                        lon: position.lng
+                    }));
+
+                    document.getElementById("startLat").value = position.lat.toFixed(6);
+                    document.getElementById("startLon").value = position.lng.toFixed(6);
+
+                    document.getElementById("realStartInfo").textContent =
+                        "Départ réel : lat " + position.lat.toFixed(6)
+                        + ", lon " + position.lng.toFixed(6)
+                        + ", heading " + waypoints[index].initialHeadingDeg + " deg";
+                }
+
+                selected_index = index;
+                render();
+            });
+
+            markers.push(marker);
+        });
+
+	        if (waypoints.length >= 2) {
+	            polyline = L.polyline(waypoints.map(wp => [wp.lat, wp.lon]), {
+	                weight: 2,
+	                opacity: 0.35,
+	                dashArray: "8 8"
+	            }).addTo(map);
+
+	            const smoothed_nodes = buildSmoothedNodes();
+	            smooth_polyline = L.polyline(smoothed_nodes.map(node => [node.lat, node.lon]), {
+	                weight: 4
+	            }).addTo(map);
+
+	            renderCommandMarkers(smoothed_nodes);
+	        }
+
+	        updateSelectedPanel(update_inputs);
+	        updateBaseInfo();
+	        generateLua();
+	    }
+
+	    function updateBaseInfo() {
+	        const info = document.getElementById("baseInfo");
+	        const nodes = buildSmoothedNodes();
+
+	        if (!nodes.length) {
+	            info.textContent = "Aucune trajectoire définie";
+	            return;
+	        }
+
+	        const start = nodes[0];
+	        const heading = nodes.length > 1 ? Math.round(bearingDeg(nodes[0], nodes[1])) : 0;
+
+	        info.textContent =
+	            "lat " + start.lat.toFixed(7)
+	            + ", lon " + start.lon.toFixed(7)
+	            + ", heading " + heading + " deg";
+	    }
+
+	    function renderCommandMarkers(nodes) {
+	        const commands = buildTimedCommands(nodes);
+	        const trajectory_speed = getTrajectorySpeedMs();
+
+	        commands.forEach((command, index) => {
+	            const speed = index === commands.length - 1 ? 0 : Math.round(trajectory_speed * 10.0) / 10.0;
+	            const marker = L.circleMarker([command.lat, command.lon], {
+	                radius: 5,
+	                weight: 2,
+	                color: "#ffcc00",
+	                fillColor: "#ffcc00",
+	                fillOpacity: 0.85
+	            }).addTo(map);
+	            const time_text = "(" + Math.round(command.time || 0.0) + " / 3)";
+
+	            marker.bindTooltip(
+	                "cmd " + index
+	                + " | t " + time_text
+	                + " | hdg " + command.headingDeg + " deg"
+	                + " | speed " + speed + " m/s",
+	                {
+	                    direction: "right"
+	                }
+	            );
+
+	            command_markers.push(marker);
+	        });
+	    }
+
+	    function updateSelectedPanel(update_inputs) {
+	        const info = document.getElementById("selectedInfo");
+	        const altitude_input = document.getElementById("wpAlt");
+
+	        if (selected_index < 0 || selected_index >= waypoints.length) {
+	            info.textContent = "Aucun point sélectionné";
+	            altitude_input.value = "";
+	            return;
+	        }
+
+        const waypoint = waypoints[selected_index];
+
+        info.textContent =
+            "Point " + selected_index
+            + " : lat " + waypoint.lat.toFixed(6)
+            + ", lon " + waypoint.lon.toFixed(6);
+
+	        if (update_inputs) {
+	            altitude_input.value = Number.isFinite(waypoint.altitudeFt) ? waypoint.altitudeFt : "";
+	        }
+	    }
+
+	    function generateLua() {
+	        const lines = [];
+	        const nodes = buildSmoothedNodes();
+	        const samples = buildTimedCommands(nodes);
+	        const trajectory_speed = getTrajectorySpeedMs();
+
+	        lines.push("return {");
+
+	        for (let index = 0; index < samples.length; ++index) {
+	            const waypoint = samples[index];
+	            const heading = waypoint.headingDeg;
+	            const heading_text = "heading = { engage = true, ref = " + heading + " }";
+
+	            const time = "(" + Math.round(waypoint.time || 0.0) + " / 3)";
+	            const altitude_text = Number.isFinite(waypoint.altitudeFt)
+	                ? "altitude = { engage = true, ref = " + Math.round(waypoint.altitudeFt) + " }"
+	                : "altitude = { engage = false }";
+	            const speed_ref = index === samples.length - 1 ? 0 : Math.round(trajectory_speed * 10.0) / 10.0;
+	            const speed_text = "speed = { engage = true, ref = " + speed_ref + " }";
+
+	            lines.push("    { time = " + time + ", " + altitude_text + ", " + heading_text + ", " + speed_text + " },");
+	        }
+
+        lines.push("}");
+
+        document.getElementById("luaOutput").value = lines.join("\n");
+    }
+
+    async function copyLua() {
+        const output = document.getElementById("luaOutput").value;
+
+        try {
+            await navigator.clipboard.writeText(output);
+        } catch (error) {
+            const textarea = document.getElementById("luaOutput");
+            textarea.select();
+            document.execCommand("copy");
+        }
+    }
+
+    map.on("click", event => {
+        if (waypoints.length === 0) {
+            setRealStart(event.latlng.lat, event.latlng.lng);
+            return;
+        }
+
+        addWaypoint(event.latlng.lat, event.latlng.lng);
+    });
+</script>
+</body>
+</html>
