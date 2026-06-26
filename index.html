@@ -108,6 +108,27 @@
             line-height: 1.4;
         }
 
+        .tabs {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            margin: 10px 0 14px;
+        }
+
+        .tab-button {
+            margin-top: 0;
+            background: #1a2c39;
+        }
+
+        .tab-button.active {
+            background: #eeeeee;
+            color: #111111;
+        }
+
+        .tab-panel.hidden {
+            display: none;
+        }
+
         @media (max-width: 900px) {
             #app {
                 grid-template-columns: 1fr;
@@ -124,74 +145,103 @@
     <div id="panel">
         <h2>GPS to Lua</h2>
 
-        <h3>Départ écrit</h3>
-
-        <label>Lieu approximatif</label>
-        <input id="searchPlace" type="text" value="Aéroport Aix Les Milles">
-        <button onclick="searchStartPlace()">Chercher le lieu</button>
-
-        <div class="small" id="referenceInfo">Aucun départ écrit défini</div>
-        <div class="small" id="realStartInfo">Clique sur la carte pour définir le vrai départ</div>
-
-        <h3>Départ réel</h3>
-
-        <div class="row">
-            <div>
-                <label>Latitude réelle</label>
-                <input id="startLat" type="number" step="0.000001" value="43.529742">
-            </div>
-            <div>
-                <label>Longitude réelle</label>
-                <input id="startLon" type="number" step="0.000001" value="5.447427">
-            </div>
+        <div class="tabs">
+            <button id="baseTabButton" class="tab-button active" onclick="showPanelTab('base')">Base</button>
+            <button id="advancedTabButton" class="tab-button" onclick="showPanelTab('advanced')">Avancé</button>
+            <button id="serverTabButton" class="tab-button" onclick="showPanelTab('server')">Serveur</button>
         </div>
 
-        <label>Altitude initiale ft</label>
-        <input id="startAlt" type="number" step="1">
+        <div id="baseTab" class="tab-panel">
+            <h3>Position</h3>
 
-        <button onclick="setStartPointFromInputs()">Placer le départ réel saisi</button>
-        <button onclick="clearTrajectory()">Effacer la trajectoire</button>
+            <label>Position texte</label>
+            <input id="basePositionText" type="text" value="43.529742, 5.447427">
+            <button onclick="setStartPointFromBaseText()">Placer cette position</button>
 
-        <h3>Point sélectionné</h3>
-
-        <div class="small" id="selectedInfo">Aucun point sélectionné</div>
-
-        <div class="row">
-            <div>
-                <label>Altitude ft</label>
-                <input id="wpAlt" type="number" step="1" oninput="updateSelectedWaypoint()">
+            <div class="row">
+                <div>
+                    <label>Speed m/s</label>
+                    <input id="trajectorySpeedMs" type="number" step="0.5" min="0.1" value="15" oninput="render(false)">
+                </div>
+                <div>
+                    <label>Altitude ft</label>
+                    <input id="startAlt" type="number" step="1" oninput="render(false)">
+                </div>
             </div>
+
+            <h3>Base simulateur</h3>
+            <div class="small" id="baseInfo">Aucune trajectoire définie</div>
+
+            <h3>Lua</h3>
+            <textarea id="luaOutput" readonly></textarea>
+            <button onclick="copyLua()">Copier le script Lua</button>
         </div>
 
-        <button onclick="deleteSelectedWaypoint()">Supprimer le point sélectionné</button>
+        <div id="advancedTab" class="tab-panel hidden">
+            <h3>Départ écrit</h3>
 
-        <h3>Lissage</h3>
+            <label>Lieu approximatif</label>
+            <input id="searchPlace" type="text" value="Aéroport Aix Les Milles">
+            <button onclick="searchStartPlace()">Chercher le lieu</button>
 
-        <div class="row">
-            <div>
-                <label>Arrondi virage NM</label>
-                <input id="turnRadiusNm" type="number" step="0.01" min="0" value="0.15" oninput="render(false)">
+            <div class="small" id="referenceInfo">Aucun départ écrit défini</div>
+            <div class="small" id="realStartInfo">Clique sur la carte pour définir le vrai départ</div>
+
+            <h3>Départ réel</h3>
+
+            <div class="row">
+                <div>
+                    <label>Latitude réelle</label>
+                    <input id="startLat" type="number" step="0.000001" value="43.529742">
+                </div>
+                <div>
+                    <label>Longitude réelle</label>
+                    <input id="startLon" type="number" step="0.000001" value="5.447427">
+                </div>
             </div>
-            <div>
-                <label>Vitesse trajectoire m/s</label>
-                <input id="trajectorySpeedMs" type="number" step="0.5" min="0.1" value="15" oninput="render(false)">
+
+            <button onclick="setStartPointFromInputs()">Placer le départ réel saisi</button>
+            <button onclick="goToStartPoint()">Revenir au point de départ</button>
+            <button onclick="clearTrajectory()">Effacer la trajectoire</button>
+
+            <h3>Point sélectionné</h3>
+
+            <div class="small" id="selectedInfo">Aucun point sélectionné</div>
+
+            <div class="row">
+                <div>
+                    <label>Altitude ft</label>
+                    <input id="wpAlt" type="number" step="1" oninput="updateSelectedWaypoint()">
+                </div>
             </div>
+
+            <button onclick="deleteSelectedWaypoint()">Supprimer le point sélectionné</button>
+
+            <h3>Lissage</h3>
+
+            <label>Arrondi virage NM</label>
+            <input id="turnRadiusNm" type="number" step="0.01" min="0" value="0.15" oninput="render(false)">
+
+            <label>Variation cap max deg</label>
+            <input id="maxHeadingStepDeg" type="number" step="1" min="1" value="5" oninput="render(false)">
+
         </div>
 
-        <label>Variation cap max deg</label>
-        <input id="maxHeadingStepDeg" type="number" step="1" min="1" value="5" oninput="render(false)">
+        <div id="serverTab" class="tab-panel hidden">
+            <h3>Serveur</h3>
 
-        <label>Anticipation secondes</label>
-        <input id="commandLeadSec" type="number" step="0.5" min="0" value="0" oninput="render(false)">
+            <label>IP</label>
+            <input id="serverIp" type="text" value="127.0.0.1">
 
-        <div class="small">Rayon 0 : trajectoire non lissée. Le Lua garde les commandes utiles ; time = distance cumulée / speed.</div>
+            <label>Port</label>
+            <input id="serverPort" type="number" min="1" max="65535" step="1" value="12344">
 
-        <h3>Base simulateur</h3>
-        <div class="small" id="baseInfo">Aucune trajectoire définie</div>
+            <button onclick="testServerConnection()">Tester</button>
+            <button onclick="centerOnHelicopter()">Centrer sur l'hélico</button>
+            <button onclick="clearHelicopterTrack()">Effacer trace hélico</button>
+            <div class="small" id="serverStatus">Statut : non testé</div>
+        </div>
 
-        <h3>Lua</h3>
-        <textarea id="luaOutput" readonly></textarea>
-        <button onclick="copyLua()">Copier le script Lua</button>
     </div>
 </div>
 
@@ -210,18 +260,156 @@
 	    let waypoints = [];
 	    let markers = [];
 	    let command_markers = [];
+	    let helicopter_marker = null;
+	    let helicopter_track = [];
+	    let helicopter_track_polyline = null;
 	    let polyline = null;
 	    let smooth_polyline = null;
 	    let selected_index = -1;
+	    let server_poll_timer = null;
+	    let server_request_in_flight = false;
 	    const earth_radius_m = 6371000.0;
 
     function toRad(degrees) {
         return degrees * Math.PI / 180.0;
     }
 
-    function toDeg(radians) {
-        return radians * 180.0 / Math.PI;
-    }
+	    function toDeg(radians) {
+	        return radians * 180.0 / Math.PI;
+	    }
+
+	    function showPanelTab(tab) {
+	        const base_selected = tab === "base";
+	        const advanced_selected = tab === "advanced";
+	        const server_selected = tab === "server";
+
+	        document.getElementById("baseTab").classList.toggle("hidden", !base_selected);
+	        document.getElementById("advancedTab").classList.toggle("hidden", !advanced_selected);
+	        document.getElementById("serverTab").classList.toggle("hidden", !server_selected);
+	        document.getElementById("baseTabButton").classList.toggle("active", base_selected);
+	        document.getElementById("advancedTabButton").classList.toggle("active", advanced_selected);
+	        document.getElementById("serverTabButton").classList.toggle("active", server_selected);
+	    }
+
+	    function testServerConnection() {
+	        pollServerState();
+	        startServerPolling();
+	    }
+
+	    function getServerStateUrl() {
+	        const ip = document.getElementById("serverIp").value.trim() || "127.0.0.1";
+	        const port = document.getElementById("serverPort").value.trim() || "12344";
+	        return "http://" + ip + ":" + port + "/state";
+	    }
+
+	    function updateHelicopterMarker(lat, lon) {
+	        if (!helicopter_marker) {
+	            helicopter_marker = L.circleMarker([lat, lon], {
+	                radius: 7,
+	                weight: 3,
+	                color: "#00e5ff",
+	                fillColor: "#00e5ff",
+	                fillOpacity: 0.9
+	            }).addTo(map);
+
+	            helicopter_marker.bindTooltip("Hélico", {
+	                permanent: true,
+	                direction: "top"
+	            });
+	            return;
+	        }
+
+	        helicopter_marker.setLatLng([lat, lon]);
+	    }
+
+	    function updateHelicopterTrack(lat, lon) {
+	        const point = [lat, lon];
+	        const previous = helicopter_track[helicopter_track.length - 1];
+
+	        if (previous && distanceNm({ lat: previous[0], lon: previous[1] }, { lat: lat, lon: lon }) < 0.0005) {
+	            return;
+	        }
+
+	        helicopter_track.push(point);
+
+	        if (!helicopter_track_polyline) {
+	            helicopter_track_polyline = L.polyline(helicopter_track, {
+	                weight: 3,
+	                color: "#00e5ff",
+	                opacity: 0.75
+	            }).addTo(map);
+	            return;
+	        }
+
+	        helicopter_track_polyline.setLatLngs(helicopter_track);
+	    }
+
+	    function clearHelicopterTrack() {
+	        helicopter_track = [];
+
+	        if (helicopter_track_polyline) {
+	            map.removeLayer(helicopter_track_polyline);
+	            helicopter_track_polyline = null;
+	        }
+	    }
+
+	    function centerOnHelicopter() {
+	        if (!helicopter_marker) {
+	            document.getElementById("serverStatus").textContent =
+	                "Statut : aucune position hélico reçue";
+	            return;
+	        }
+
+	        map.setView(helicopter_marker.getLatLng(), Math.max(map.getZoom(), 16));
+	    }
+
+	    async function pollServerState() {
+	        if (server_request_in_flight) {
+	            return;
+	        }
+
+	        server_request_in_flight = true;
+
+	        try {
+	            const response = await fetch(getServerStateUrl(), {
+	                cache: "no-store"
+	            });
+
+	            if (!response.ok) {
+	                throw new Error("HTTP " + response.status);
+	            }
+
+	            const data = await response.json();
+	            const lat = Number(data.lat);
+	            const lon = Number(data.lon);
+
+	            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+	                throw new Error("champ lat/lon manquant");
+	            }
+
+	            updateHelicopterMarker(lat, lon);
+	            updateHelicopterTrack(lat, lon);
+	            document.getElementById("serverStatus").textContent =
+	                "Statut : fonctionne | lat " + lat.toFixed(6) + ", lon " + lon.toFixed(6);
+	        } catch (error) {
+	            const message = error instanceof TypeError
+	                ? "fetch bloqué ou serveur inaccessible, vérifier CORS"
+	                : error.message;
+
+	            document.getElementById("serverStatus").textContent =
+	                "Statut : erreur | " + message;
+	        } finally {
+	            server_request_in_flight = false;
+	        }
+	    }
+
+	    function startServerPolling() {
+	        if (server_poll_timer) {
+	            clearInterval(server_poll_timer);
+	        }
+
+	        server_poll_timer = setInterval(pollServerState, 300);
+	    }
 
 	    function distanceNm(a, b) {
 	        const lat1 = toRad(a.lat);
@@ -264,8 +452,32 @@
 	            return null;
 	        }
 
-	        const value = Number(raw_value);
+	        const value = Number(raw_value.replace(",", "."));
 	        return Number.isFinite(value) ? value : null;
+	    }
+
+	    function parsePositionText(text) {
+	        const matches = text.match(/-?\d+(?:[,.]\d+)?/g);
+
+	        if (!matches || matches.length < 2) {
+	            return null;
+	        }
+
+	        const lat = Number(matches[0].replace(",", "."));
+	        const lon = Number(matches[1].replace(",", "."));
+
+	        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+	            return null;
+	        }
+
+	        return {
+	            lat: lat,
+	            lon: lon
+	        };
+	    }
+
+	    function updateBasePositionText(lat, lon) {
+	        document.getElementById("basePositionText").value = lat.toFixed(6) + ", " + lon.toFixed(6);
 	    }
 
 	    function lerpOptional(a, b, t) {
@@ -295,11 +507,6 @@
 	    function getTrajectorySpeedMs() {
 	        const value = Number(document.getElementById("trajectorySpeedMs").value);
 	        return Math.max(0.1, Number.isFinite(value) ? value : 15.0);
-	    }
-
-	    function getCommandLeadSec() {
-	        const value = Number(document.getElementById("commandLeadSec").value);
-	        return Math.max(0.0, Number.isFinite(value) ? value : 0.0);
 	    }
 
 	    function getMaxHeadingStepDeg() {
@@ -491,31 +698,19 @@
 	        if (nodes.length <= 1) {
 	            return nodes.map(node => ({
 	                ...node,
-	                headingDeg: 0,
-	                time: 0.0
+	                headingDeg: 0
 	            }));
 	        }
 
-	        const speed_ms = getTrajectorySpeedMs();
-	        const lead_sec = getCommandLeadSec();
 	        const max_heading_step = getMaxHeadingStepDeg();
-	        let cumulative_distance_m = 0.0;
 	        const timed_nodes = nodes.map((node, index) => {
-	            if (index > 0) {
-	                cumulative_distance_m += distanceNm(nodes[index - 1], node) * 1852.0;
-	            }
-
-	            const time = index === 0
-	                ? 0.0
-	                : Math.max(0.0, cumulative_distance_m / speed_ms - lead_sec);
 	            const heading_source = index < nodes.length - 1 ? node : nodes[index - 1];
 	            const heading_target = index < nodes.length - 1 ? nodes[index + 1] : node;
 	            const heading = Math.round(bearingDeg(heading_source, heading_target));
 
 	            return {
 	                ...node,
-	                headingDeg: heading,
-	                time: time
+	                headingDeg: heading
 	            };
 	        });
 
@@ -547,6 +742,19 @@
 	        return commands;
 	    }
 
+	    function buildRouteWaypoints(nodes) {
+	        const speed = getTrajectorySpeedMs();
+	        const base_altitude = optionalNumberFromInput("startAlt");
+	        const commands = buildTimedCommands(nodes);
+
+	        return commands.map((command, index) => ({
+	            lat: command.lat,
+	            lon: command.lon,
+	            altitudeFt: Number.isFinite(base_altitude) ? base_altitude : command.altitudeFt,
+	            speedMs: index === commands.length - 1 ? 0 : speed
+	        }));
+	    }
+
     async function searchStartPlace() {
         const place = document.getElementById("searchPlace").value.trim();
 
@@ -554,20 +762,18 @@
             return;
         }
 
-        const url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(place);
-        const response = await fetch(url);
-        const results = await response.json();
+	        const result = await geocodePlace(place);
 
-        if (!results.length) {
-            alert("Lieu introuvable");
-            return;
-        }
+	        if (!result) {
+	            alert("Lieu introuvable");
+	            return;
+	        }
 
-        reference_start = {
-            lat: Number(results[0].lat),
-            lon: Number(results[0].lon),
-            name: results[0].display_name
-        };
+	        reference_start = {
+	            lat: result.lat,
+	            lon: result.lon,
+	            name: place
+	        };
 
         if (reference_marker) {
             map.removeLayer(reference_marker);
@@ -593,11 +799,59 @@
         map.setView([reference_start.lat, reference_start.lon], 16);
     }
 
-    function setStartPointFromInputs() {
-        const lat = Number(document.getElementById("startLat").value);
-        const lon = Number(document.getElementById("startLon").value);
-        setRealStart(lat, lon);
-    }
+	    function setStartPointFromInputs() {
+	        const lat = Number(document.getElementById("startLat").value);
+	        const lon = Number(document.getElementById("startLon").value);
+	        setRealStart(lat, lon);
+	    }
+
+	    async function geocodePlace(query) {
+	        const url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + encodeURIComponent(query);
+	        const response = await fetch(url);
+	        const results = await response.json();
+
+	        if (!results.length) {
+	            return null;
+	        }
+
+	        return {
+	            lat: Number(results[0].lat),
+	            lon: Number(results[0].lon)
+	        };
+	    }
+
+	    async function setStartPointFromBaseText() {
+	        const text = document.getElementById("basePositionText").value.trim();
+	        let position = parsePositionText(text);
+
+	        if (!position && text) {
+	            position = await geocodePlace(text);
+	        }
+
+	        if (!position) {
+	            alert("Position invalide");
+	            return;
+	        }
+
+	        document.getElementById("startLat").value = position.lat.toFixed(6);
+	        document.getElementById("startLon").value = position.lon.toFixed(6);
+	        setRealStart(position.lat, position.lon);
+	    }
+
+	    function goToStartPoint() {
+	        if (waypoints.length > 0) {
+	            map.setView([waypoints[0].lat, waypoints[0].lon], Math.max(map.getZoom(), 16));
+	            selectWaypoint(0);
+	            return;
+	        }
+
+	        const lat = Number(document.getElementById("startLat").value);
+	        const lon = Number(document.getElementById("startLon").value);
+
+	        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+	            map.setView([lat, lon], Math.max(map.getZoom(), 16));
+	        }
+	    }
 
 	    function setRealStart(lat, lon) {
 	        const altitude = optionalNumberFromInput("startAlt");
@@ -620,8 +874,9 @@
 
         selected_index = 0;
 
-        document.getElementById("startLat").value = lat.toFixed(6);
-        document.getElementById("startLon").value = lon.toFixed(6);
+	        document.getElementById("startLat").value = lat.toFixed(6);
+	        document.getElementById("startLon").value = lon.toFixed(6);
+	        updateBasePositionText(lat, lon);
 
         let text = "Départ réel : lat " + lat.toFixed(6) + ", lon " + lon.toFixed(6);
 
@@ -725,10 +980,11 @@
                         lon: position.lng
                     }));
 
-                    document.getElementById("startLat").value = position.lat.toFixed(6);
-                    document.getElementById("startLon").value = position.lng.toFixed(6);
+	                    document.getElementById("startLat").value = position.lat.toFixed(6);
+	                    document.getElementById("startLon").value = position.lng.toFixed(6);
+	                    updateBasePositionText(position.lat, position.lng);
 
-                    document.getElementById("realStartInfo").textContent =
+	                    document.getElementById("realStartInfo").textContent =
                         "Départ réel : lat " + position.lat.toFixed(6)
                         + ", lon " + position.lng.toFixed(6)
                         + ", heading " + waypoints[index].initialHeadingDeg + " deg";
@@ -771,33 +1027,29 @@
 	        }
 
 	        const start = nodes[0];
-	        const heading = nodes.length > 1 ? Math.round(bearingDeg(nodes[0], nodes[1])) : 0;
 
 	        info.textContent =
 	            "lat " + start.lat.toFixed(7)
-	            + ", lon " + start.lon.toFixed(7)
-	            + ", heading " + heading + " deg";
+	            + ", lon " + start.lon.toFixed(7);
 	    }
 
 	    function renderCommandMarkers(nodes) {
-	        const commands = buildTimedCommands(nodes);
-	        const trajectory_speed = getTrajectorySpeedMs();
+	        const route_waypoints = buildRouteWaypoints(nodes);
 
-	        commands.forEach((command, index) => {
-	            const speed = index === commands.length - 1 ? 0 : Math.round(trajectory_speed * 10.0) / 10.0;
-	            const marker = L.circleMarker([command.lat, command.lon], {
+	        route_waypoints.forEach((waypoint, index) => {
+	            const altitude = Number.isFinite(waypoint.altitudeFt) ? Math.round(waypoint.altitudeFt) : 0;
+	            const speed = Math.round(waypoint.speedMs * 10.0) / 10.0;
+	            const marker = L.circleMarker([waypoint.lat, waypoint.lon], {
 	                radius: 5,
 	                weight: 2,
 	                color: "#ffcc00",
 	                fillColor: "#ffcc00",
 	                fillOpacity: 0.85
 	            }).addTo(map);
-	            const time_text = "(" + Math.round(command.time || 0.0) + " / 3)";
 
 	            marker.bindTooltip(
-	                "cmd " + index
-	                + " | t " + time_text
-	                + " | hdg " + command.headingDeg + " deg"
+	                "wp " + index
+	                + " | alt " + altitude + " ft"
 	                + " | speed " + speed + " m/s",
 	                {
 	                    direction: "right"
@@ -833,24 +1085,25 @@
 	    function generateLua() {
 	        const lines = [];
 	        const nodes = buildSmoothedNodes();
-	        const samples = buildTimedCommands(nodes);
-	        const trajectory_speed = getTrajectorySpeedMs();
+	        const route_waypoints = buildRouteWaypoints(nodes);
 
+	        lines.push("-- resources/scriptMe.lua");
 	        lines.push("return {");
 
-	        for (let index = 0; index < samples.length; ++index) {
-	            const waypoint = samples[index];
-	            const heading = waypoint.headingDeg;
-	            const heading_text = "heading = { engage = true, ref = " + heading + " }";
+	        for (let index = 0; index < route_waypoints.length; ++index) {
+	            const waypoint = route_waypoints[index];
+	            const altitude = Number.isFinite(waypoint.altitudeFt) ? Math.round(waypoint.altitudeFt) : 0;
+	            const speed = Math.round(waypoint.speedMs * 10.0) / 10.0;
+	            const comma = index === route_waypoints.length - 1 ? "" : ",";
 
-	            const time = "(" + Math.round(waypoint.time || 0.0) + " / 3)";
-	            const altitude_text = Number.isFinite(waypoint.altitudeFt)
-	                ? "altitude = { engage = true, ref = " + Math.round(waypoint.altitudeFt) + " }"
-	                : "altitude = { engage = false }";
-	            const speed_ref = index === samples.length - 1 ? 0 : Math.round(trajectory_speed * 10.0) / 10.0;
-	            const speed_text = "speed = { engage = true, ref = " + speed_ref + " }";
-
-	            lines.push("    { time = " + time + ", " + altitude_text + ", " + heading_text + ", " + speed_text + " },");
+	            lines.push(
+	                "    { lat = " + waypoint.lat.toFixed(7)
+	                + ", lon = " + waypoint.lon.toFixed(7)
+	                + ", altitude = {engage=true, ref=" + altitude + "}"
+	                + ", speed = {engage=true, ref=" + speed + "} }"
+	                + comma
+	                + " -- Waypoint " + (index + 1)
+	            );
 	        }
 
         lines.push("}");
