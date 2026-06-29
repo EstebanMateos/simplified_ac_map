@@ -129,6 +129,34 @@
             display: none;
         }
 
+        .helicopter-icon {
+            width: 34px;
+            height: 34px;
+            transform-origin: 50% 50%;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+        }
+
+        .helicopter-icon-body {
+            width: 34px;
+            height: 34px;
+            display: grid;
+            place-items: center;
+            color: #ff9f1c;
+            line-height: 1;
+        }
+
+        .helicopter-icon-body svg {
+            width: 34px;
+            height: 34px;
+            display: block;
+        }
+
+        .helicopter-icon-body img {
+            width: 34px;
+            height: 34px;
+            display: block;
+        }
+
         @media (max-width: 900px) {
             #app {
                 grid-template-columns: 1fr;
@@ -164,7 +192,7 @@
                     <input id="trajectorySpeedMs" type="number" step="0.5" min="0.1" value="15" oninput="render(false)">
                 </div>
                 <div>
-                    <label>Altitude ft</label>
+                    <label>Altitude m</label>
                     <input id="startAlt" type="number" step="1" oninput="render(false)">
                 </div>
             </div>
@@ -210,7 +238,7 @@
 
             <div class="row">
                 <div>
-                    <label>Altitude ft</label>
+                    <label>Altitude m</label>
                     <input id="wpAlt" type="number" step="1" oninput="updateSelectedWaypoint()">
                 </div>
             </div>
@@ -224,6 +252,12 @@
 
             <label>Variation cap max deg</label>
             <input id="maxHeadingStepDeg" type="number" step="1" min="1" value="5" oninput="render(false)">
+
+            <label>Speed virage min m/s</label>
+            <input id="minTurnSpeedMs" type="number" step="0.5" min="0.1" value="6" oninput="render(false)">
+
+            <label>Espacement route min m</label>
+            <input id="minRouteSpacingM" type="number" step="5" min="1" value="80" oninput="render(false)">
 
         </div>
 
@@ -250,12 +284,16 @@
 <script>
     const map = L.map("map").setView([43.529742, 5.447427], 15);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: "&copy; OpenStreetMap"
-    }).addTo(map);
+	    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+	        maxZoom: 19,
+	        attribution: "&copy; OpenStreetMap"
+	    }).addTo(map);
 
-    let reference_start = null;
+	    map.createPane("helicopterPane");
+	    map.getPane("helicopterPane").style.zIndex = 900;
+	    map.getPane("helicopterPane").style.pointerEvents = "none";
+
+	    let reference_start = null;
     let reference_marker = null;
 	    let waypoints = [];
 	    let markers = [];
@@ -265,6 +303,7 @@
 	    let helicopter_track_polyline = null;
 	    let polyline = null;
 	    let smooth_polyline = null;
+	    let lua_route_polyline = null;
 	    let selected_index = -1;
 	    let server_poll_timer = null;
 	    let server_request_in_flight = false;
@@ -302,14 +341,26 @@
 	        return "http://" + ip + ":" + port + "/state";
 	    }
 
+	    function makeHelicopterIcon() {
+	        return L.divIcon({
+	            className: "",
+	            iconSize: [34, 34],
+	            iconAnchor: [17, 17],
+	            html: "<div class=\"helicopter-icon\">"
+	                + "<div class=\"helicopter-icon-body\">"
+	                + "<img src=\"https://cdn.jsdelivr.net/npm/@mdi/svg/svg/helicopter.svg\" alt=\"Hélico\">"
+	                + "</div>"
+	                + "</div>"
+	        });
+	    }
+
 	    function updateHelicopterMarker(lat, lon) {
 	        if (!helicopter_marker) {
-	            helicopter_marker = L.circleMarker([lat, lon], {
-	                radius: 7,
-	                weight: 3,
-	                color: "#00e5ff",
-	                fillColor: "#00e5ff",
-	                fillOpacity: 0.9
+	            helicopter_marker = L.marker([lat, lon], {
+	                icon: makeHelicopterIcon(),
+	                pane: "helicopterPane",
+	                interactive: false,
+	                zIndexOffset: 10000
 	            }).addTo(map);
 
 	            helicopter_marker.bindTooltip("Hélico", {
@@ -514,8 +565,24 @@
 	        return Math.max(1.0, Number.isFinite(value) ? value : 5.0);
 	    }
 
+	    function getMinTurnSpeedMs() {
+	        const value = Number(document.getElementById("minTurnSpeedMs").value);
+	        return Math.max(0.1, Number.isFinite(value) ? value : 6.0);
+	    }
+
+	    function getMinRouteSpacingM() {
+	        const value = Number(document.getElementById("minRouteSpacingM").value);
+	        return Math.max(1.0, Number.isFinite(value) ? value : 80.0);
+	    }
+
 	    function headingDeltaDeg(a, b) {
 	        return Math.abs(((b - a + 540.0) % 360.0) - 180.0);
+	    }
+
+	    function speedForTurn(base_speed, min_turn_speed, turn_deg) {
+	        const severity = clamp(turn_deg / 25.0, 0.0, 1.0);
+	        const speed = base_speed - (base_speed - min_turn_speed) * severity;
+	        return clamp(speed, min_turn_speed, base_speed);
 	    }
 
 	    function makeProjectionOrigin() {
@@ -698,19 +765,30 @@
 	        if (nodes.length <= 1) {
 	            return nodes.map(node => ({
 	                ...node,
-	                headingDeg: 0
+	                headingDeg: 0,
+	                turnDeg: 0
 	            }));
 	        }
 
 	        const max_heading_step = getMaxHeadingStepDeg();
+	        const min_route_spacing_m = getMinRouteSpacingM();
 	        const timed_nodes = nodes.map((node, index) => {
 	            const heading_source = index < nodes.length - 1 ? node : nodes[index - 1];
 	            const heading_target = index < nodes.length - 1 ? nodes[index + 1] : node;
 	            const heading = Math.round(bearingDeg(heading_source, heading_target));
+	            let turn = 0.0;
+
+	            if (index > 0 && index < nodes.length - 1) {
+	                turn = headingDeltaDeg(
+	                    bearingDeg(nodes[index - 1], node),
+	                    bearingDeg(node, nodes[index + 1])
+	                );
+	            }
 
 	            return {
 	                ...node,
-	                headingDeg: heading
+	                headingDeg: heading,
+	                turnDeg: turn
 	            };
 	        });
 
@@ -730,7 +808,14 @@
 	            const entering_turn = is_turning && !was_turning;
 	            const leaving_turn = !is_turning && was_turning;
 
-	            if (entering_turn || leaving_turn || since_last_command >= max_heading_step) {
+	            const last_command = commands[commands.length - 1];
+	            const spacing_from_last_m = distanceNm(last_command, node) * 1852.0;
+	            const required_spacing_m = (entering_turn || leaving_turn)
+	                ? Math.min(min_route_spacing_m, 35.0)
+	                : min_route_spacing_m;
+
+	            if ((entering_turn || leaving_turn || since_last_command >= max_heading_step)
+	                && spacing_from_last_m >= required_spacing_m) {
 	                commands.push(node);
 	                last_heading = node.headingDeg;
 	            }
@@ -744,15 +829,34 @@
 
 	    function buildRouteWaypoints(nodes) {
 	        const speed = getTrajectorySpeedMs();
+	        const min_turn_speed = Math.min(getMinTurnSpeedMs(), speed);
 	        const base_altitude = optionalNumberFromInput("startAlt");
 	        const commands = buildTimedCommands(nodes);
+	        const route_turns = commands.map((command, index) => {
+	            if (index <= 0 || index >= commands.length - 1) {
+	                return 0.0;
+	            }
 
-	        return commands.map((command, index) => ({
-	            lat: command.lat,
-	            lon: command.lon,
-	            altitudeFt: Number.isFinite(base_altitude) ? base_altitude : command.altitudeFt,
-	            speedMs: index === commands.length - 1 ? 0 : speed
-	        }));
+	            return headingDeltaDeg(
+	                bearingDeg(commands[index - 1], command),
+	                bearingDeg(command, commands[index + 1])
+	            );
+	        });
+
+	        return commands.map((command, index) => {
+	            const previous_turn = index > 0 ? route_turns[index - 1] : 0.0;
+	            const current_turn = route_turns[index] || 0.0;
+	            const next_turn = index < commands.length - 1 ? route_turns[index + 1] : 0.0;
+	            const turn = Math.max(current_turn, previous_turn * 0.65, next_turn * 0.85);
+
+	            return {
+	                lat: command.lat,
+	                lon: command.lon,
+	                altitudeFt: Number.isFinite(base_altitude) ? base_altitude : command.altitudeFt,
+	                speedMs: index === commands.length - 1 ? 0 : speedForTurn(speed, min_turn_speed, turn),
+	                turnDeg: turn
+	            };
+	        });
 	    }
 
     async function searchStartPlace() {
@@ -956,6 +1060,11 @@
 	            smooth_polyline = null;
 	        }
 
+	        if (lua_route_polyline) {
+	            map.removeLayer(lua_route_polyline);
+	            lua_route_polyline = null;
+	        }
+
         waypoints.forEach((waypoint, index) => {
             const marker = L.marker([waypoint.lat, waypoint.lon], {
                 draggable: true
@@ -1006,7 +1115,16 @@
 
 	            const smoothed_nodes = buildSmoothedNodes();
 	            smooth_polyline = L.polyline(smoothed_nodes.map(node => [node.lat, node.lon]), {
-	                weight: 4
+	                weight: 2,
+	                opacity: 0.35,
+	                color: "#3388ff"
+	            }).addTo(map);
+
+	            const route_waypoints = buildRouteWaypoints(smoothed_nodes);
+	            lua_route_polyline = L.polyline(route_waypoints.map(wp => [wp.lat, wp.lon]), {
+	                weight: 5,
+	                color: "#0057ff",
+	                opacity: 0.9
 	            }).addTo(map);
 
 	            renderCommandMarkers(smoothed_nodes);
@@ -1049,8 +1167,9 @@
 
 	            marker.bindTooltip(
 	                "wp " + index
-	                + " | alt " + altitude + " ft"
-	                + " | speed " + speed + " m/s",
+	                + " | alt " + altitude + " m"
+	                + " | speed " + speed + " m/s"
+	                + " | turn " + Math.round(waypoint.turnDeg || 0.0) + " deg",
 	                {
 	                    direction: "right"
 	                }
