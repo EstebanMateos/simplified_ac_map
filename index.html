@@ -236,11 +236,11 @@
         <div class="row">
             <div>
                 <label>Max speed kt</label>
-                <input id="hippodromeMaxSpeedKt" type="number" step="1" min="1" value="70">
+                <input id="hippodromeMaxSpeedKt" type="number" step="1" min="1" value="70" oninput="updateHippodromeParameters()">
             </div>
             <div>
                 <label>Max angle deg</label>
-                <input id="hippodromeMaxBankDeg" type="number" step="1" min="1" max="45" value="20">
+                <input id="hippodromeMaxBankDeg" type="number" step="1" min="1" max="45" value="20" oninput="updateHippodromeParameters()">
             </div>
         </div>
 
@@ -663,6 +663,12 @@
 	        return speed_kt * knot_to_ms;
 	    }
 
+	    function setTrajectorySpeedFromHippodrome() {
+	        const speed = getHippodromeMaxSpeedMs();
+	        document.getElementById("trajectorySpeedMs").value = (Math.round(speed * 10.0) / 10.0).toString();
+	        return speed;
+	    }
+
 	    function getHippodromeMaxBankDeg() {
 	        const value = Number(document.getElementById("hippodromeMaxBankDeg").value);
 	        return clamp(Number.isFinite(value) ? value : 20.0, 1.0, 45.0);
@@ -755,8 +761,19 @@
 	        createHippodromeFromStart(hippodrome_start.lat, hippodrome_start.lon);
 	    }
 
+	    function updateHippodromeParameters() {
+	        setTrajectorySpeedFromHippodrome();
+
+	        if (!hippodrome_start || trajectory_locked) {
+	            render(false);
+	            return;
+	        }
+
+	        createHippodromeFromStart(hippodrome_start.lat, hippodrome_start.lon);
+	    }
+
 	    function createHippodromeFromStart(lat, lon) {
-	        const speed = getHippodromeMaxSpeedMs();
+	        const speed = setTrajectorySpeedFromHippodrome();
 	        const speed_kt = speed / knot_to_ms;
 	        const altitude = optionalNumberFromInput("startAlt");
 	        const bank_deg = getHippodromeMaxBankDeg();
@@ -812,7 +829,6 @@
 	        selected_index = 0;
 	        document.getElementById("startLat").value = waypoints[0].lat.toFixed(6);
 	        document.getElementById("startLon").value = waypoints[0].lon.toFixed(6);
-	        document.getElementById("trajectorySpeedMs").value = (Math.round(speed * 10.0) / 10.0).toString();
 	        updateBasePositionText(waypoints[0].lat, waypoints[0].lon);
 	        document.getElementById("hippodromeInfo").textContent =
 	            "Hippodrome : WP1 = hélico, " + Math.round(speed_kt) + " kt / "
