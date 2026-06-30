@@ -106,6 +106,10 @@
             color: #eeeeee;
         }
 
+        .compact-textarea {
+            min-height: 120px;
+        }
+
         .row {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -278,6 +282,12 @@
         <textarea id="luaOutput" readonly></textarea>
         <button onclick="copyLua()">Copier le script Lua</button>
 
+        <label>Importer Lua</label>
+        <textarea id="luaImport" class="compact-textarea" placeholder="Colle ici un script Lua généré par l'outil"></textarea>
+        <button onclick="importLuaText()">Importer le Lua collé</button>
+        <button onclick="clearImportedLua()">Effacer affichage importé</button>
+        <div class="small" id="luaImportStatus">Import Lua : colle le texte Lua puis importe</div>
+
         <input id="basePositionText" type="hidden" value="43.529742, 5.447427">
         <input id="searchPlace" type="hidden" value="Aéroport Aix Les Milles">
         <input id="wpAlt" type="hidden">
@@ -318,6 +328,8 @@
 	    let polyline = null;
 	    let smooth_polyline = null;
 	    let lua_route_polyline = null;
+	    let imported_lua_polyline = null;
+	    let imported_lua_markers = [];
 	    let selected_index = -1;
 	    let server_poll_timer = null;
 	    let server_request_in_flight = false;
@@ -1502,6 +1514,143 @@
             document.execCommand("copy");
         }
     }
+
+	    function parseLuaNumberField(entry, field_name) {
+	        const pattern = new RegExp(field_name + "\\s*=\\s*(-?\\d+(?:[\\.,]\\d+)?)");
+	        const match = entry.match(pattern);
+	        return match ? Number(match[1].replace(",", ".")) : null;
+	    }
+
+	    function parseLuaNestedRef(entry, field_name) {
+	        const pattern = new RegExp(field_name + "\\s*=\\s*\\{[\\s\\S]*?ref\\s*=\\s*(-?\\d+(?:[\\.,]\\d+)?)");
+	        const match = entry.match(pattern);
+	        return match ? Number(match[1].replace(",", ".")) : null;
+	    }
+
+	    function extractLuaWaypointEntries(lua_text) {
+	        const entries = [];
+	        let depth = 0;
+	        let entry_start = -1;
+
+	        for (let index = 0; index < lua_text.length; ++index) {
+	            const char = lua_text[index];
+
+	            if (char === "{") {
+	                if (depth === 1) {
+	                    entry_start = index;
+	                }
+
+	                depth += 1;
+	                continue;
+	            }
+
+	            if (char !== "}") {
+	                continue;
+	            }
+
+	            depth -= 1;
+
+	            if (depth === 1 && entry_start >= 0) {
+	                entries.push(lua_text.slice(entry_start, index + 1));
+	                entry_start = -1;
+	            }
+	        }
+
+	        return entries;
+	    }
+
+	    function parseGeneratedLuaRoute(lua_text) {
+	        const route = [];
+	        const entries = extractLuaWaypointEntries(lua_text);
+
+	        entries.forEach(entry => {
+	            const lat = parseLuaNumberField(entry, "lat");
+	            const lon = parseLuaNumberField(entry, "lon");
+
+	            if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+	                return;
+	            }
+
+	            route.push({
+	                lat: lat,
+	                lon: lon,
+	                altitude: parseLuaNestedRef(entry, "altitude"),
+	                speed: parseLuaNestedRef(entry, "speed")
+	            });
+	        });
+
+	        return route;
+	    }
+
+	    function renderImportedLuaRoute(route) {
+	        clearImportedLua(false);
+
+	        if (route.length === 0) {
+	            document.getElementById("luaImportStatus").textContent =
+	                "Import Lua : aucun waypoint lat/lon trouvé";
+	            return;
+	        }
+
+	        imported_lua_polyline = L.polyline(route.map(point => [point.lat, point.lon]), {
+	            weight: 4,
+	            color: "#ff4fd8",
+	            opacity: 0.9,
+	            dashArray: "10 6"
+	        }).addTo(map);
+
+	        route.forEach((point, index) => {
+	            const marker = L.circleMarker([point.lat, point.lon], {
+	                radius: 6,
+	                weight: 2,
+	                color: "#ffffff",
+	                fillColor: "#ff7a00",
+	                fillOpacity: 0.95
+	            }).addTo(map);
+
+	            const parts = ["Lua import " + (index + 1)];
+
+	            if (Number.isFinite(point.altitude)) {
+	                parts.push("alt " + Math.round(point.altitude) + " m");
+	            }
+
+	            if (Number.isFinite(point.speed)) {
+	                parts.push("speed " + point.speed + " m/s");
+	            }
+
+	            marker.bindTooltip(parts.join(" | "), {
+	                direction: "right"
+	            });
+
+	            imported_lua_markers.push(marker);
+	        });
+
+	        map.fitBounds(imported_lua_polyline.getBounds(), {
+	            padding: [30, 30]
+	        });
+
+	        document.getElementById("luaImportStatus").textContent =
+	            "Import Lua : " + route.length + " waypoints affichés en rose/orange";
+	    }
+
+	    function importLuaText() {
+	        const lua_text = document.getElementById("luaImport").value;
+	        renderImportedLuaRoute(parseGeneratedLuaRoute(lua_text));
+	    }
+
+	    function clearImportedLua(update_status = true) {
+	        if (imported_lua_polyline) {
+	            map.removeLayer(imported_lua_polyline);
+	            imported_lua_polyline = null;
+	        }
+
+	        imported_lua_markers.forEach(marker => map.removeLayer(marker));
+	        imported_lua_markers = [];
+
+	        if (update_status) {
+	            document.getElementById("luaImportStatus").textContent =
+	                "Import Lua : affichage effacé";
+	        }
+	    }
 
 	    map.on("click", event => {
 	        if (trajectory_locked) {
