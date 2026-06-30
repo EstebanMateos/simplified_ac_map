@@ -17,22 +17,46 @@
             color: #eeeeee;
         }
 
-        #app {
-            display: grid;
-            grid-template-columns: 1fr 440px;
-            height: 100%;
-        }
+	        #app {
+	            display: grid;
+	            grid-template-columns: 1fr 440px;
+	            height: 100%;
+	        }
+
+	        #app.panel-hidden {
+	            grid-template-columns: 1fr;
+	        }
 
         #map {
             height: 100%;
         }
 
-        #panel {
-            padding: 14px;
-            overflow: auto;
-            background: #243f52;
-            box-sizing: border-box;
-        }
+	        #panel {
+	            padding: 14px;
+	            overflow: auto;
+	            background: #243f52;
+	            box-sizing: border-box;
+	        }
+
+	        #app.panel-hidden #panel {
+	            display: none;
+	        }
+
+	        #panelToggle {
+	            position: absolute;
+	            top: 12px;
+	            right: 12px;
+	            z-index: 1000;
+	            width: auto;
+	            min-width: 42px;
+	            padding: 9px 11px;
+	            background: #111111;
+	            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+	        }
+
+	        #app:not(.panel-hidden) #panelToggle {
+	            display: none;
+	        }
 
         h2,
         h3 {
@@ -169,9 +193,11 @@
 <body>
 <div id="app">
     <div id="map"></div>
+    <button id="panelToggle" onclick="showPanel()">Panneau</button>
 
     <div id="panel">
         <h2>GPS to Lua</h2>
+        <button onclick="hidePanel()">Cacher le panneau</button>
 
         <div class="tabs">
             <button id="baseTabButton" class="tab-button active" onclick="showPanelTab('base')">Base</button>
@@ -203,6 +229,9 @@
             <h3>Lua</h3>
             <textarea id="luaOutput" readonly></textarea>
             <button onclick="copyLua()">Copier le script Lua</button>
+            <button id="lockTrajectoryButton" onclick="lockTrajectory()">Lock trajectoire</button>
+            <button id="unlockTrajectoryButton" onclick="unlockTrajectory()">Unlock trajectoire</button>
+            <div class="small" id="trajectoryLockStatus">Trajectoire : éditable</div>
         </div>
 
         <div id="advancedTab" class="tab-panel hidden">
@@ -259,6 +288,26 @@
             <label>Espacement route min m</label>
             <input id="minRouteSpacingM" type="number" step="5" min="1" value="80" oninput="render(false)">
 
+            <h3>Hippodrome</h3>
+
+            <div class="row">
+                <div>
+                    <label>Max speed kt</label>
+                    <input id="hippodromeMaxSpeedKt" type="number" step="1" min="1" value="70">
+                </div>
+                <div>
+                    <label>Max angle deg</label>
+                    <input id="hippodromeMaxBankDeg" type="number" step="1" min="1" max="45" value="20">
+                </div>
+            </div>
+
+            <label>Orientation deg</label>
+            <input id="hippodromeHeadingDeg" type="range" min="0" max="360" step="1" value="90" oninput="setHippodromeHeadingFromSlider()">
+            <div class="small" id="hippodromeHeadingInfo">Orientation : 90 deg</div>
+
+            <button id="hippodromeButton" onclick="createHippodromeFromHelicopter()">Créer hippodrome depuis hélico</button>
+            <div class="small" id="hippodromeInfo">Hippodrome : inactif</div>
+
         </div>
 
         <div id="serverTab" class="tab-panel hidden">
@@ -271,8 +320,10 @@
             <input id="serverPort" type="number" min="1" max="65535" step="1" value="12344">
 
             <button onclick="testServerConnection()">Tester</button>
-            <button onclick="centerOnHelicopter()">Centrer sur l'hélico</button>
+            <button id="followHelicopterButton" onclick="toggleFollowHelicopter()">Suivre l'hélico</button>
+            <button onclick="setRouteStartFromHelicopter()">Point 0 = hélico</button>
             <button onclick="clearHelicopterTrack()">Effacer trace hélico</button>
+            <div class="small" id="helicopterPositionInfo">Hélico : aucune position</div>
             <div class="small" id="serverStatus">Statut : non testé</div>
         </div>
 
@@ -299,6 +350,7 @@
 	    let markers = [];
 	    let command_markers = [];
 	    let helicopter_marker = null;
+	    let last_helicopter_position = null;
 	    let helicopter_track = [];
 	    let helicopter_track_polyline = null;
 	    let polyline = null;
@@ -307,7 +359,12 @@
 	    let selected_index = -1;
 	    let server_poll_timer = null;
 	    let server_request_in_flight = false;
+	    let follow_helicopter = false;
+	    let trajectory_locked = false;
+	    let hippodrome_heading_deg = 90.0;
+	    let hippodrome_start = null;
 	    const earth_radius_m = 6371000.0;
+	    const knot_to_ms = 0.514444;
 
     function toRad(degrees) {
         return degrees * Math.PI / 180.0;
@@ -328,6 +385,33 @@
 	        document.getElementById("baseTabButton").classList.toggle("active", base_selected);
 	        document.getElementById("advancedTabButton").classList.toggle("active", advanced_selected);
 	        document.getElementById("serverTabButton").classList.toggle("active", server_selected);
+	    }
+
+	    function hidePanel() {
+	        document.getElementById("app").classList.add("panel-hidden");
+	        setTimeout(() => map.invalidateSize(), 0);
+	    }
+
+	    function showPanel() {
+	        document.getElementById("app").classList.remove("panel-hidden");
+	        setTimeout(() => map.invalidateSize(), 0);
+	    }
+
+	    function updateTrajectoryLockUi() {
+	        document.getElementById("trajectoryLockStatus").textContent =
+	            trajectory_locked ? "Trajectoire : lockée" : "Trajectoire : éditable";
+	    }
+
+	    function lockTrajectory() {
+	        trajectory_locked = true;
+	        updateTrajectoryLockUi();
+	        render(false);
+	    }
+
+	    function unlockTrajectory() {
+	        trajectory_locked = false;
+	        updateTrajectoryLockUi();
+	        render(false);
 	    }
 
 	    function testServerConnection() {
@@ -414,6 +498,16 @@
 	        map.setView(helicopter_marker.getLatLng(), Math.max(map.getZoom(), 16));
 	    }
 
+	    function toggleFollowHelicopter() {
+	        follow_helicopter = !follow_helicopter;
+	        document.getElementById("followHelicopterButton").textContent =
+	            follow_helicopter ? "Arrêter suivi hélico" : "Suivre l'hélico";
+
+	        if (follow_helicopter) {
+	            centerOnHelicopter();
+	        }
+	    }
+
 	    async function pollServerState() {
 	        if (server_request_in_flight) {
 	            return;
@@ -438,8 +532,18 @@
 	                throw new Error("champ lat/lon manquant");
 	            }
 
+	            last_helicopter_position = {
+	                lat: lat,
+	                lon: lon
+	            };
+
 	            updateHelicopterMarker(lat, lon);
 	            updateHelicopterTrack(lat, lon);
+	            document.getElementById("helicopterPositionInfo").textContent =
+	                "Hélico : lat " + lat.toFixed(7) + ", lon " + lon.toFixed(7);
+	            if (follow_helicopter) {
+	                map.setView([lat, lon], Math.max(map.getZoom(), 16));
+	            }
 	            document.getElementById("serverStatus").textContent =
 	                "Statut : fonctionne | lat " + lat.toFixed(6) + ", lon " + lon.toFixed(6);
 	        } catch (error) {
@@ -460,6 +564,42 @@
 	        }
 
 	        server_poll_timer = setInterval(pollServerState, 300);
+	    }
+
+	    function setRouteStartFromHelicopter() {
+	        if (trajectory_locked) {
+	            document.getElementById("serverStatus").textContent =
+	                "Statut : trajectoire lockée, unlock nécessaire";
+	            return;
+	        }
+
+	        if (!last_helicopter_position) {
+	            document.getElementById("serverStatus").textContent =
+	                "Statut : aucune position hélico reçue";
+	            return;
+	        }
+
+	        const lat = last_helicopter_position.lat;
+	        const lon = last_helicopter_position.lon;
+	        const altitude = optionalNumberFromInput("startAlt");
+
+	        document.getElementById("startLat").value = lat.toFixed(6);
+	        document.getElementById("startLon").value = lon.toFixed(6);
+	        updateBasePositionText(lat, lon);
+
+	        if (waypoints.length === 0) {
+	            setRealStart(lat, lon);
+	        } else {
+	            waypoints[0].lat = lat;
+	            waypoints[0].lon = lon;
+	            waypoints[0].altitudeFt = altitude;
+	            selected_index = 0;
+	            render();
+	        }
+
+	        map.setView([lat, lon], Math.max(map.getZoom(), 16));
+	        document.getElementById("serverStatus").textContent =
+	            "Statut : point 0 placé sur l'hélico";
 	    }
 
 	    function distanceNm(a, b) {
@@ -575,6 +715,17 @@
 	        return Math.max(1.0, Number.isFinite(value) ? value : 80.0);
 	    }
 
+	    function getHippodromeMaxSpeedMs() {
+	        const value = Number(document.getElementById("hippodromeMaxSpeedKt").value);
+	        const speed_kt = Math.max(1.0, Number.isFinite(value) ? value : 70.0);
+	        return speed_kt * knot_to_ms;
+	    }
+
+	    function getHippodromeMaxBankDeg() {
+	        const value = Number(document.getElementById("hippodromeMaxBankDeg").value);
+	        return clamp(Number.isFinite(value) ? value : 20.0, 1.0, 45.0);
+	    }
+
 	    function headingDeltaDeg(a, b) {
 	        return Math.abs(((b - a + 540.0) % 360.0) - 180.0);
 	    }
@@ -611,6 +762,123 @@
 	            lat: origin.lat + toDeg(point.y / earth_radius_m),
 	            lon: origin.lon + toDeg(point.x / (earth_radius_m * origin.cosLat))
 	        };
+	    }
+
+	    function rotateHippodromeLocalPoint(x, y) {
+	        const heading_rad = toRad(hippodrome_heading_deg);
+	        const left_rad = heading_rad - Math.PI / 2.0;
+
+	        return {
+	            x: x * Math.sin(heading_rad) + y * Math.sin(left_rad),
+	            y: x * Math.cos(heading_rad) + y * Math.cos(left_rad)
+	        };
+	    }
+
+	    function createHippodromeFromHelicopter() {
+	        if (trajectory_locked) {
+	            document.getElementById("hippodromeInfo").textContent =
+	                "Hippodrome : trajectoire lockée";
+	            return;
+	        }
+
+	        if (!last_helicopter_position) {
+	            document.getElementById("hippodromeInfo").textContent =
+	                "Hippodrome : aucune position hélico reçue";
+	            return;
+	        }
+
+	        hippodrome_start = {
+	            lat: last_helicopter_position.lat,
+	            lon: last_helicopter_position.lon
+	        };
+	        createHippodromeFromStart(hippodrome_start.lat, hippodrome_start.lon);
+	    }
+
+	    function setHippodromeHeadingFromSlider() {
+	        const value = Number(document.getElementById("hippodromeHeadingDeg").value);
+	        hippodrome_heading_deg = Number.isFinite(value) ? value : 90.0;
+	        document.getElementById("hippodromeHeadingInfo").textContent =
+	            "Orientation : " + Math.round(hippodrome_heading_deg) + " deg";
+
+	        if (trajectory_locked) {
+	            document.getElementById("hippodromeInfo").textContent =
+	                "Hippodrome : trajectoire lockée";
+	            return;
+	        }
+
+	        if (!hippodrome_start) {
+	            return;
+	        }
+
+	        createHippodromeFromStart(hippodrome_start.lat, hippodrome_start.lon);
+	    }
+
+	    function createHippodromeFromStart(lat, lon) {
+	        const speed = getHippodromeMaxSpeedMs();
+	        const speed_kt = speed / knot_to_ms;
+	        const altitude = optionalNumberFromInput("startAlt");
+	        const bank_deg = getHippodromeMaxBankDeg();
+	        const bank_rad = toRad(bank_deg);
+	        const physics_radius = speed * speed / (9.81 * Math.tan(bank_rad));
+	        const configured_radius = getTurnRadiusM();
+	        const radius = Math.max(physics_radius, configured_radius, 60.0);
+	        const straight_length = Math.max(speed * 25.0, radius * 2.5);
+	        const origin = {
+	            lat: lat,
+	            lon: lon,
+	            cosLat: Math.cos(toRad(lat))
+	        };
+	        const control_points = [];
+
+	        control_points.push({
+	            lat: lat,
+	            lon: lon,
+	            altitudeFt: altitude,
+	            initialHeadingDeg: null
+	        });
+
+	        function pushLocal(x, y) {
+	            const rotated = rotateHippodromeLocalPoint(x, y);
+	            const geo = localToGeo(rotated, origin);
+	            control_points.push({
+	                lat: geo.lat,
+	                lon: geo.lon,
+	                altitudeFt: altitude,
+	                initialHeadingDeg: null
+	            });
+	        }
+
+	        const arc_samples = 6;
+
+	        pushLocal(straight_length, 0.0);
+
+	        for (let sample = 1; sample <= arc_samples; ++sample) {
+	            const angle = -Math.PI / 2.0 + sample / arc_samples * Math.PI;
+	            pushLocal(straight_length + Math.cos(angle) * radius, radius + Math.sin(angle) * radius);
+	        }
+
+	        pushLocal(0.0, radius * 2.0);
+
+	        for (let sample = 1; sample <= arc_samples; ++sample) {
+	            const angle = Math.PI / 2.0 + sample / arc_samples * Math.PI;
+	            pushLocal(Math.cos(angle) * radius, radius + Math.sin(angle) * radius);
+	        }
+
+	        pushLocal(0.0, 0.0);
+
+	        waypoints = control_points;
+	        selected_index = 0;
+	        document.getElementById("startLat").value = waypoints[0].lat.toFixed(6);
+	        document.getElementById("startLon").value = waypoints[0].lon.toFixed(6);
+	        document.getElementById("trajectorySpeedMs").value = (Math.round(speed * 10.0) / 10.0).toString();
+	        updateBasePositionText(waypoints[0].lat, waypoints[0].lon);
+	        document.getElementById("hippodromeInfo").textContent =
+	            "Hippodrome : WP1 = hélico, " + Math.round(speed_kt) + " kt / "
+	            + (Math.round(speed * 10.0) / 10.0) + " m/s, angle "
+	            + bank_deg + " deg, rayon " + Math.round(radius)
+	            + " m, ligne droite " + Math.round(straight_length)
+	            + " m, orientation " + Math.round(hippodrome_heading_deg) + " deg";
+	        render();
 	    }
 
 	    function vectorLength(vector) {
@@ -904,6 +1172,10 @@
     }
 
 	    function setStartPointFromInputs() {
+	        if (trajectory_locked) {
+	            return;
+	        }
+
 	        const lat = Number(document.getElementById("startLat").value);
 	        const lon = Number(document.getElementById("startLon").value);
 	        setRealStart(lat, lon);
@@ -925,6 +1197,10 @@
 	    }
 
 	    async function setStartPointFromBaseText() {
+	        if (trajectory_locked) {
+	            return;
+	        }
+
 	        const text = document.getElementById("basePositionText").value.trim();
 	        let position = parsePositionText(text);
 
@@ -958,6 +1234,10 @@
 	    }
 
 	    function setRealStart(lat, lon) {
+	        if (trajectory_locked) {
+	            return;
+	        }
+
 	        const altitude = optionalNumberFromInput("startAlt");
 
 	        let initial_heading = null;
@@ -994,8 +1274,12 @@
         render();
     }
 
-    function addWaypoint(lat, lon) {
-        const previous = waypoints[waypoints.length - 1];
+	    function addWaypoint(lat, lon) {
+	        if (trajectory_locked) {
+	            return;
+	        }
+
+	        const previous = waypoints[waypoints.length - 1];
 
 	        waypoints.push({
 	            lat: lat,
@@ -1013,8 +1297,12 @@
         render();
     }
 
-    function updateSelectedWaypoint() {
-        if (selected_index < 0 || selected_index >= waypoints.length) {
+	    function updateSelectedWaypoint() {
+	        if (trajectory_locked) {
+	            return;
+	        }
+
+	        if (selected_index < 0 || selected_index >= waypoints.length) {
             return;
         }
 
@@ -1023,8 +1311,12 @@
         render(false);
     }
 
-    function deleteSelectedWaypoint() {
-        if (selected_index < 0 || selected_index >= waypoints.length) {
+	    function deleteSelectedWaypoint() {
+	        if (trajectory_locked) {
+	            return;
+	        }
+
+	        if (selected_index < 0 || selected_index >= waypoints.length) {
             return;
         }
 
@@ -1033,8 +1325,12 @@
         render();
     }
 
-    function clearTrajectory() {
-        waypoints = [];
+	    function clearTrajectory() {
+	        if (trajectory_locked) {
+	            return;
+	        }
+
+	        waypoints = [];
         selected_index = -1;
 
         document.getElementById("realStartInfo").textContent =
@@ -1065,10 +1361,10 @@
 	            lua_route_polyline = null;
 	        }
 
-        waypoints.forEach((waypoint, index) => {
-            const marker = L.marker([waypoint.lat, waypoint.lon], {
-                draggable: true
-            }).addTo(map);
+	        waypoints.forEach((waypoint, index) => {
+	            const marker = L.marker([waypoint.lat, waypoint.lon], {
+	                draggable: !trajectory_locked
+	            }).addTo(map);
 
             marker.bindTooltip(String(index), {
                 permanent: true,
@@ -1077,8 +1373,12 @@
 
             marker.on("click", () => selectWaypoint(index));
 
-            marker.on("dragend", event => {
-                const position = event.target.getLatLng();
+	            marker.on("dragend", event => {
+	                if (trajectory_locked) {
+	                    return;
+	                }
+
+	                const position = event.target.getLatLng();
 
                 waypoints[index].lat = position.lat;
                 waypoints[index].lon = position.lng;
@@ -1144,11 +1444,17 @@
 	            return;
 	        }
 
-	        const start = nodes[0];
-
-	        info.textContent =
-	            "lat " + start.lat.toFixed(7)
+	        const route_waypoints = buildRouteWaypoints(nodes);
+	        const start = route_waypoints[0];
+	        let text = "lat " + start.lat.toFixed(7)
 	            + ", lon " + start.lon.toFixed(7);
+
+	        if (route_waypoints.length >= 2) {
+	            const initial_heading = Math.round(bearingDeg(route_waypoints[0], route_waypoints[1]));
+	            text += ", heading WP0->WP1 " + initial_heading + " deg";
+	        }
+
+	        info.textContent = text;
 	    }
 
 	    function renderCommandMarkers(nodes) {
@@ -1211,14 +1517,16 @@
 
 	        for (let index = 0; index < route_waypoints.length; ++index) {
 	            const waypoint = route_waypoints[index];
-	            const altitude = Number.isFinite(waypoint.altitudeFt) ? Math.round(waypoint.altitudeFt) : 0;
+	            const altitude_text = Number.isFinite(waypoint.altitudeFt)
+	                ? ", altitude = {engage=true, ref=" + Math.round(waypoint.altitudeFt) + "}"
+	                : "";
 	            const speed = Math.round(waypoint.speedMs * 10.0) / 10.0;
 	            const comma = index === route_waypoints.length - 1 ? "" : ",";
 
 	            lines.push(
 	                "    { lat = " + waypoint.lat.toFixed(7)
 	                + ", lon = " + waypoint.lon.toFixed(7)
-	                + ", altitude = {engage=true, ref=" + altitude + "}"
+	                + altitude_text
 	                + ", speed = {engage=true, ref=" + speed + "} }"
 	                + comma
 	                + " -- Waypoint " + (index + 1)
@@ -1242,9 +1550,13 @@
         }
     }
 
-    map.on("click", event => {
-        if (waypoints.length === 0) {
-            setRealStart(event.latlng.lat, event.latlng.lng);
+	    map.on("click", event => {
+	        if (trajectory_locked) {
+	            return;
+	        }
+
+	        if (waypoints.length === 0) {
+	            setRealStart(event.latlng.lat, event.latlng.lng);
             return;
         }
 
