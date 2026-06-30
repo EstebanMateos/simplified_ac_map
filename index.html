@@ -199,133 +199,95 @@
         <h2>GPS to Lua</h2>
         <button onclick="hidePanel()">Cacher le panneau</button>
 
-        <div class="tabs">
-            <button id="baseTabButton" class="tab-button active" onclick="showPanelTab('base')">Base</button>
-            <button id="advancedTabButton" class="tab-button" onclick="showPanelTab('advanced')">Avancé</button>
-            <button id="serverTabButton" class="tab-button" onclick="showPanelTab('server')">Serveur</button>
+        <h3>Serveur</h3>
+
+        <div class="row">
+            <div>
+                <label>IP</label>
+                <input id="serverIp" type="text" value="127.0.0.1">
+            </div>
+            <div>
+                <label>Port</label>
+                <input id="serverPort" type="number" min="1" max="65535" step="1" value="12344">
+            </div>
         </div>
 
-        <div id="baseTab" class="tab-panel">
-            <h3>Position</h3>
+        <button onclick="testServerConnection()">Tester</button>
+        <button id="followHelicopterButton" onclick="toggleFollowHelicopter()">Suivre l'hélico</button>
+        <button onclick="setRouteStartFromHelicopter()">Point 0 = hélico</button>
+        <div class="small" id="helicopterPositionInfo">Hélico : aucune position</div>
+        <div class="small" id="serverStatus">Statut : non testé</div>
 
-            <label>Position texte</label>
-            <input id="basePositionText" type="text" value="43.529742, 5.447427">
-            <button onclick="setStartPointFromBaseText()">Placer cette position</button>
+        <h3>Trajectoire</h3>
 
-            <div class="row">
-                <div>
-                    <label>Speed m/s</label>
-                    <input id="trajectorySpeedMs" type="number" step="0.5" min="0.1" value="15" oninput="render(false)">
-                </div>
-                <div>
-                    <label>Altitude m</label>
-                    <input id="startAlt" type="number" step="1" oninput="render(false)">
-                </div>
+        <div class="row">
+            <div>
+                <label>Speed m/s</label>
+                <input id="trajectorySpeedMs" type="number" step="0.5" min="0.1" value="15" oninput="render(false)">
             </div>
-
-            <h3>Base simulateur</h3>
-            <div class="small" id="baseInfo">Aucune trajectoire définie</div>
-
-            <h3>Lua</h3>
-            <textarea id="luaOutput" readonly></textarea>
-            <button onclick="copyLua()">Copier le script Lua</button>
-            <button id="lockTrajectoryButton" onclick="lockTrajectory()">Lock trajectoire</button>
-            <button id="unlockTrajectoryButton" onclick="unlockTrajectory()">Unlock trajectoire</button>
-            <div class="small" id="trajectoryLockStatus">Trajectoire : éditable</div>
+            <div>
+                <label>Altitude m</label>
+                <input id="startAlt" type="number" step="1" oninput="render(false)">
+            </div>
         </div>
 
-        <div id="advancedTab" class="tab-panel hidden">
-            <h3>Départ écrit</h3>
-
-            <label>Lieu approximatif</label>
-            <input id="searchPlace" type="text" value="Aéroport Aix Les Milles">
-            <button onclick="searchStartPlace()">Chercher le lieu</button>
-
-            <div class="small" id="referenceInfo">Aucun départ écrit défini</div>
-            <div class="small" id="realStartInfo">Clique sur la carte pour définir le vrai départ</div>
-
-            <h3>Départ réel</h3>
-
-            <div class="row">
-                <div>
-                    <label>Latitude réelle</label>
-                    <input id="startLat" type="number" step="0.000001" value="43.529742">
-                </div>
-                <div>
-                    <label>Longitude réelle</label>
-                    <input id="startLon" type="number" step="0.000001" value="5.447427">
-                </div>
+        <div class="row">
+            <div>
+                <label>Latitude WP0</label>
+                <input id="startLat" type="number" step="0.000001" value="43.529742">
             </div>
-
-            <button onclick="setStartPointFromInputs()">Placer le départ réel saisi</button>
-            <button onclick="goToStartPoint()">Revenir au point de départ</button>
-            <button onclick="clearTrajectory()">Effacer la trajectoire</button>
-
-            <h3>Point sélectionné</h3>
-
-            <div class="small" id="selectedInfo">Aucun point sélectionné</div>
-
-            <div class="row">
-                <div>
-                    <label>Altitude m</label>
-                    <input id="wpAlt" type="number" step="1" oninput="updateSelectedWaypoint()">
-                </div>
+            <div>
+                <label>Longitude WP0</label>
+                <input id="startLon" type="number" step="0.000001" value="5.447427">
             </div>
-
-            <button onclick="deleteSelectedWaypoint()">Supprimer le point sélectionné</button>
-
-            <h3>Lissage</h3>
-
-            <label>Arrondi virage NM</label>
-            <input id="turnRadiusNm" type="number" step="0.01" min="0" value="0.15" oninput="render(false)">
-
-            <label>Variation cap max deg</label>
-            <input id="maxHeadingStepDeg" type="number" step="1" min="1" value="5" oninput="render(false)">
-
-            <label>Speed virage min m/s</label>
-            <input id="minTurnSpeedMs" type="number" step="0.5" min="0.1" value="6" oninput="render(false)">
-
-            <label>Espacement route min m</label>
-            <input id="minRouteSpacingM" type="number" step="5" min="1" value="80" oninput="render(false)">
-
-            <h3>Hippodrome</h3>
-
-            <div class="row">
-                <div>
-                    <label>Max speed kt</label>
-                    <input id="hippodromeMaxSpeedKt" type="number" step="1" min="1" value="70">
-                </div>
-                <div>
-                    <label>Max angle deg</label>
-                    <input id="hippodromeMaxBankDeg" type="number" step="1" min="1" max="45" value="20">
-                </div>
-            </div>
-
-            <label>Orientation deg</label>
-            <input id="hippodromeHeadingDeg" type="range" min="0" max="360" step="1" value="90" oninput="setHippodromeHeadingFromSlider()">
-            <div class="small" id="hippodromeHeadingInfo">Orientation : 90 deg</div>
-
-            <button id="hippodromeButton" onclick="createHippodromeFromHelicopter()">Créer hippodrome depuis hélico</button>
-            <div class="small" id="hippodromeInfo">Hippodrome : inactif</div>
-
         </div>
 
-        <div id="serverTab" class="tab-panel hidden">
-            <h3>Serveur</h3>
+        <button onclick="setStartPointFromInputs()">Placer WP0 saisi</button>
+        <button onclick="goToStartPoint()">Revenir au point de départ</button>
+        <div class="small" id="baseInfo">Aucune trajectoire définie</div>
 
-            <label>IP</label>
-            <input id="serverIp" type="text" value="127.0.0.1">
+        <h3>Hippodrome</h3>
 
-            <label>Port</label>
-            <input id="serverPort" type="number" min="1" max="65535" step="1" value="12344">
-
-            <button onclick="testServerConnection()">Tester</button>
-            <button id="followHelicopterButton" onclick="toggleFollowHelicopter()">Suivre l'hélico</button>
-            <button onclick="setRouteStartFromHelicopter()">Point 0 = hélico</button>
-            <button onclick="clearHelicopterTrack()">Effacer trace hélico</button>
-            <div class="small" id="helicopterPositionInfo">Hélico : aucune position</div>
-            <div class="small" id="serverStatus">Statut : non testé</div>
+        <div class="row">
+            <div>
+                <label>Max speed kt</label>
+                <input id="hippodromeMaxSpeedKt" type="number" step="1" min="1" value="70">
+            </div>
+            <div>
+                <label>Max angle deg</label>
+                <input id="hippodromeMaxBankDeg" type="number" step="1" min="1" max="45" value="20">
+            </div>
         </div>
+
+        <label>Orientation deg</label>
+        <input id="hippodromeHeadingDeg" type="range" min="0" max="360" step="1" value="90" oninput="setHippodromeHeadingFromSlider()">
+        <div class="small" id="hippodromeHeadingInfo">Orientation : 90 deg</div>
+
+        <button id="hippodromeButton" onclick="createHippodromeFromHelicopter()">Créer hippodrome depuis hélico</button>
+        <div class="small" id="hippodromeInfo">Hippodrome : inactif</div>
+
+        <h3>Actions</h3>
+
+        <button onclick="clearHelicopterTrack()">Effacer trace hélico</button>
+        <button onclick="clearTrajectory()">Effacer trajectoire</button>
+        <button id="lockTrajectoryButton" onclick="lockTrajectory()">Lock trajectoire</button>
+        <button id="unlockTrajectoryButton" onclick="unlockTrajectory()">Unlock trajectoire</button>
+        <div class="small" id="trajectoryLockStatus">Trajectoire : éditable</div>
+
+        <h3>Lua</h3>
+        <textarea id="luaOutput" readonly></textarea>
+        <button onclick="copyLua()">Copier le script Lua</button>
+
+        <input id="basePositionText" type="hidden" value="43.529742, 5.447427">
+        <input id="searchPlace" type="hidden" value="Aéroport Aix Les Milles">
+        <input id="wpAlt" type="hidden">
+        <input id="turnRadiusNm" type="hidden" value="0.15">
+        <input id="maxHeadingStepDeg" type="hidden" value="5">
+        <input id="minTurnSpeedMs" type="hidden" value="6">
+        <input id="minRouteSpacingM" type="hidden" value="80">
+        <div id="referenceInfo" style="display:none">Aucun départ écrit défini</div>
+        <div id="realStartInfo" style="display:none">Clique sur la carte pour définir le vrai départ</div>
+        <div id="selectedInfo" style="display:none">Aucun point sélectionné</div>
 
     </div>
 </div>
@@ -375,16 +337,7 @@
 	    }
 
 	    function showPanelTab(tab) {
-	        const base_selected = tab === "base";
-	        const advanced_selected = tab === "advanced";
-	        const server_selected = tab === "server";
-
-	        document.getElementById("baseTab").classList.toggle("hidden", !base_selected);
-	        document.getElementById("advancedTab").classList.toggle("hidden", !advanced_selected);
-	        document.getElementById("serverTab").classList.toggle("hidden", !server_selected);
-	        document.getElementById("baseTabButton").classList.toggle("active", base_selected);
-	        document.getElementById("advancedTabButton").classList.toggle("active", advanced_selected);
-	        document.getElementById("serverTabButton").classList.toggle("active", server_selected);
+	        return;
 	    }
 
 	    function hidePanel() {
