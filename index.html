@@ -391,13 +391,28 @@
 	    }
 
 	    function makeHelicopterIcon() {
+	        const svg = ""
+	            + "<svg viewBox=\"0 0 64 64\" aria-hidden=\"true\" xmlns=\"http://www.w3.org/2000/svg\">"
+	            + "<g fill=\"none\" stroke=\"#1b1b1b\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\">"
+	            + "<path d=\"M8 16h48\"/>"
+	            + "<path d=\"M32 16v9\"/>"
+	            + "<path d=\"M26 50h16\"/>"
+	            + "<path d=\"M34 42l4 8\"/>"
+	            + "<path d=\"M16 36H7\"/>"
+	            + "<path d=\"M7 32v8\"/>"
+	            + "</g>"
+	            + "<path d=\"M18 28h22c8 0 14 4 16 10H36l-8 7H16c-5 0-9-4-9-9s5-8 11-8z\" fill=\"#ff9f1c\" stroke=\"#1b1b1b\" stroke-width=\"4\" stroke-linejoin=\"round\"/>"
+	            + "<path d=\"M39 28l8 10\" stroke=\"#1b1b1b\" stroke-width=\"4\" stroke-linecap=\"round\"/>"
+	            + "<circle cx=\"19\" cy=\"36\" r=\"4\" fill=\"#ffffff\" opacity=\"0.9\"/>"
+	            + "</svg>";
+
 	        return L.divIcon({
 	            className: "",
 	            iconSize: [34, 34],
 	            iconAnchor: [17, 17],
 	            html: "<div class=\"helicopter-icon\">"
 	                + "<div class=\"helicopter-icon-body\">"
-	                + "<img src=\"https://cdn.jsdelivr.net/npm/@mdi/svg/svg/helicopter.svg\" alt=\"Hélico\">"
+	                + svg
 	                + "</div>"
 	                + "</div>"
 	        });
