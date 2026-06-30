@@ -72,7 +72,8 @@
 
         input,
         button,
-        textarea {
+        textarea,
+        select {
             width: 100%;
             box-sizing: border-box;
             border: none;
@@ -81,7 +82,8 @@
             font-size: 14px;
         }
 
-        input {
+        input,
+        select {
             background: #eeeeee;
             color: #111111;
         }
@@ -247,6 +249,12 @@
         <label>Orientation deg</label>
         <input id="hippodromeHeadingDeg" type="range" min="0" max="360" step="1" value="90" oninput="setHippodromeHeadingFromSlider()">
         <div class="small" id="hippodromeHeadingInfo">Orientation : 90 deg</div>
+
+        <label>Mode vitesse Lua</label>
+        <select id="speedMode" onchange="render(false)">
+            <option value="adaptive" selected>Adaptatif virages</option>
+            <option value="fixed">Vitesse fixe</option>
+        </select>
 
         <button id="hippodromeButton" onclick="createHippodromeFromHelicopter()">Créer hippodrome depuis hélico</button>
         <div class="small" id="hippodromeInfo">Hippodrome : inactif</div>
@@ -655,6 +663,10 @@
 	    function getMinRouteSpacingM() {
 	        const value = Number(document.getElementById("minRouteSpacingM").value);
 	        return Math.max(1.0, Number.isFinite(value) ? value : 80.0);
+	    }
+
+	    function getSpeedMode() {
+	        return document.getElementById("speedMode").value;
 	    }
 
 	    function getHippodromeMaxSpeedMs() {
@@ -1074,12 +1086,15 @@
 	            const current_turn = route_turns[index] || 0.0;
 	            const next_turn = index < commands.length - 1 ? route_turns[index + 1] : 0.0;
 	            const turn = Math.max(current_turn, previous_turn * 0.65, next_turn * 0.85);
+	            const command_speed = getSpeedMode() === "fixed"
+	                ? speed
+	                : speedForTurn(speed, min_turn_speed, turn);
 
 	            return {
 	                lat: command.lat,
 	                lon: command.lon,
 	                altitudeFt: Number.isFinite(base_altitude) ? base_altitude : command.altitudeFt,
-	                speedMs: index === commands.length - 1 ? 0 : speedForTurn(speed, min_turn_speed, turn),
+	                speedMs: index === commands.length - 1 ? 0 : command_speed,
 	                turnDeg: turn
 	            };
 	        });
